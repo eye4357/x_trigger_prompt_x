@@ -19,6 +19,7 @@ Notes:
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import re
 import signal
@@ -57,6 +58,16 @@ try:
 except Exception:  # pragma: no cover
     Desktop = None
 
+try:
+    import cv2
+except Exception:  # pragma: no cover
+    cv2 = None
+
+try:
+    import numpy as np
+except Exception:  # pragma: no cover
+    np = None
+
 
 DEFAULT_SHORTCUT = "ctrl+alt+i"
 ACTIVE_NAME_PATTERNS = (
@@ -75,8 +86,9 @@ class Config:
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
     prompt_file: Optional[Path] = None
-    stop_template: Optional[Path] = None
+    stop_templates: tuple[Path, ...] = ()
     template_confidence: float = 0.9
+    template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
     use_uia_scan: bool = True
     halt_keyword: str = "HALT NOW"
     disable_halt_keyword_scan: bool = False
@@ -185,7 +197,7 @@ class PromptMonitor:
             except Exception:
                 pass
 
-        if self.config.stop_template:
+        if self.config.stop_templates:
             try:
                 if self._template_detect_stop_button(window):
                     return True
@@ -230,16 +242,58 @@ class PromptMonitor:
         return False
 
     def _template_detect_stop_button(self, window) -> bool:
-        if not self.config.stop_template:
+        if not self.config.stop_templates:
             return False
         region = self._window_region(window)
-        match = pyautogui.locateOnScreen(
-            str(self.config.stop_template),
-            region=region,
-            confidence=self.config.template_confidence,
-            grayscale=True,
-        )
-        return match is not None
+        if cv2 is not None and np is not None:
+            return self._template_detect_with_cv2(region)
+        return self._template_detect_with_pyautogui(region)
+
+    def _template_detect_with_pyautogui(self, region: Tuple[int, int, int, int]) -> bool:
+        # Fallback matcher when OpenCV is unavailable: no scale sweep.
+        for template_path in self.config.stop_templates:
+            match = pyautogui.locateOnScreen(
+                str(template_path),
+                region=region,
+                confidence=self.config.template_confidence,
+                grayscale=True,
+            )
+            if match is not None:
+                return True
+        return False
+
+    def _template_detect_with_cv2(self, region: Tuple[int, int, int, int]) -> bool:
+        shot = pyautogui.screenshot(region=region).convert("L")
+        screen_gray = np.array(shot)
+        screen_h, screen_w = screen_gray.shape[:2]
+
+        for template_path in self.config.stop_templates:
+            template = cv2.imread(str(template_path), cv2.IMREAD_GRAYSCALE)
+            if template is None:
+                continue
+
+            base_h, base_w = template.shape[:2]
+            for scale in self.config.template_scales:
+                scaled_w = max(1, int(round(base_w * scale)))
+                scaled_h = max(1, int(round(base_h * scale)))
+
+                if scaled_w < 4 or scaled_h < 4:
+                    continue
+                if scaled_w > screen_w or scaled_h > screen_h:
+                    continue
+
+                if scale == 1.0:
+                    candidate = template
+                else:
+                    interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+                    candidate = cv2.resize(template, (scaled_w, scaled_h), interpolation=interp)
+
+                result = cv2.matchTemplate(screen_gray, candidate, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                if max_val >= self.config.template_confidence:
+                    return True
+
+        return False
 
     def _submit_prompt(self, window) -> bool:
         try:
@@ -294,9 +348,41 @@ class PromptMonitor:
         self._log(
             f"Configured submissions: {self.config.max_prompts} (limit: 512)."
         )
+        if self.config.stop_templates:
+            self._log(
+                f"Template variants: {len(self.config.stop_templates)}; "
+                f"scale variants: {len(self.config.template_scales)}."
+            )
         if not self.config.disable_halt_keyword_scan:
             self._log(f"Early-stop keyword: {self.config.halt_keyword!r}.")
         self._log("Press Ctrl+C to stop.")
+
+
+def _parse_scales_csv(scales_csv: str, parser: argparse.ArgumentParser) -> tuple[float, ...]:
+    raw_parts = [p.strip() for p in scales_csv.split(",") if p.strip()]
+    if not raw_parts:
+        parser.error("--template-scales must include at least one numeric value.")
+
+    parsed: list[float] = []
+    for part in raw_parts:
+        try:
+            value = float(part)
+        except ValueError:
+            parser.error(f"Invalid scale value in --template-scales: {part}")
+        if value <= 0.0:
+            parser.error("Template scale values must be > 0.")
+        parsed.append(value)
+
+    # Preserve order while removing duplicates from minor float formatting differences.
+    unique = list(dict.fromkeys(round(v, 6) for v in parsed))
+    return tuple(unique)
+
+
+def _resolve_profile_path(raw_path: str, profile_file: Optional[Path]) -> Path:
+    candidate = Path(raw_path)
+    if not candidate.is_absolute() and profile_file:
+        candidate = profile_file.parent / candidate
+    return candidate
 
 
 def parse_args(argv: list[str]) -> Config:
@@ -352,13 +438,30 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument(
         "--stop-template",
         type=Path,
+        action="append",
         help="Image file path for stop button template matching (png recommended).",
+    )
+    parser.add_argument(
+        "--stop-template-glob",
+        action="append",
+        help=(
+            "Glob pattern for stop templates (example: .\\templates\\stop_*.png). "
+            "Can be provided multiple times."
+        ),
     )
     parser.add_argument(
         "--template-confidence",
         type=float,
         default=0.9,
         help="Template match confidence in [0.1, 1.0].",
+    )
+    parser.add_argument(
+        "--template-scales",
+        default="0.85,0.92,1.0,1.08,1.15",
+        help=(
+            "Comma-separated scale sweep for template matching "
+            "(example: 0.85,0.92,1.0,1.08,1.15)."
+        ),
     )
     parser.add_argument(
         "--disable-uia-scan",
@@ -438,14 +541,40 @@ def parse_args(argv: list[str]) -> Config:
     if not prompt_text.strip():
         parser.error("Provide --prompt or --prompt-file with non-empty content.")
 
-    stop_template = args.stop_template
-    if stop_template is None and isinstance(profile.get("stop_template"), str):
-        candidate = Path(str(profile["stop_template"]))
-        if not candidate.is_absolute() and args.profile_file:
-            candidate = args.profile_file.parent / candidate
-        stop_template = candidate
-    if stop_template and not stop_template.exists():
-        parser.error(f"Stop template file does not exist: {stop_template}")
+    stop_templates: list[Path] = []
+    if args.stop_template:
+        stop_templates.extend(args.stop_template)
+
+    profile_templates = profile.get("stop_templates")
+    if not stop_templates and isinstance(profile_templates, list):
+        for item in profile_templates:
+            if isinstance(item, str):
+                stop_templates.append(_resolve_profile_path(item, args.profile_file))
+
+    if not stop_templates and isinstance(profile.get("stop_template"), str):
+        stop_templates.append(
+            _resolve_profile_path(str(profile["stop_template"]), args.profile_file)
+        )
+
+    if args.stop_template_glob:
+        for pattern in args.stop_template_glob:
+            for matched in sorted(glob.glob(pattern)):
+                stop_templates.append(Path(matched))
+
+    stop_templates_dedup = list(dict.fromkeys(str(p) for p in stop_templates))
+    stop_templates = [Path(p) for p in stop_templates_dedup]
+
+    for template in stop_templates:
+        if not template.exists():
+            parser.error(f"Stop template file does not exist: {template}")
+
+    template_scales = _parse_scales_csv(args.template_scales, parser)
+    if (
+        args.template_scales == "0.85,0.92,1.0,1.08,1.15"
+        and isinstance(profile.get("template_scales"), list)
+    ):
+        profile_scale_items = ",".join(str(s) for s in profile["template_scales"])
+        template_scales = _parse_scales_csv(profile_scale_items, parser)
 
     input_click_x = args.input_click_x
     input_click_y = args.input_click_y
@@ -503,8 +632,9 @@ def parse_args(argv: list[str]) -> Config:
         vs_title_regex=vs_title_regex,
         chat_focus_hotkey=chat_focus_hotkey,
         prompt_file=prompt_file,
-        stop_template=stop_template,
+        stop_templates=tuple(stop_templates),
         template_confidence=template_confidence,
+        template_scales=template_scales,
         use_uia_scan=not args.disable_uia_scan,
         halt_keyword=halt_keyword,
         disable_halt_keyword_scan=args.disable_halt_keyword_scan,

@@ -60,6 +60,7 @@ UI labels can vary by version. For best reliability:
 
 1. Capture a small screenshot of the Copilot stop button and save it as `stop_button.png`.
 2. Optionally identify chat input click coordinates if hotkey focus is inconsistent.
+3. Use multi-template matching and scale sweep when you switch themes, zoom levels, or displays.
 
 Example:
 
@@ -69,8 +70,21 @@ python auto_trigger_copilot_chat.py `
   --max-prompts 128 `
   --stop-template .\stop_button.png `
   --template-confidence 0.90 `
+  --template-scales 0.85,0.92,1.0,1.08,1.15 `
   --input-click-x 1450 `
   --input-click-y 990
+```
+
+Multi-template example (recommended for theme/display variance):
+
+```powershell
+python auto_trigger_copilot_chat.py `
+  --prompt-file .\prompt.txt `
+  --max-prompts 256 `
+  --stop-template .\templates\stop_dark.png `
+  --stop-template .\templates\stop_light.png `
+  --stop-template-glob .\templates\stop_scale_*.png `
+  --template-scales 0.85,0.92,1.0,1.08,1.15
 ```
 
 ## Calibration Helper Script
@@ -103,6 +117,9 @@ You can still override profile values with explicit CLI flags.
 - `--submit-cooldown-seconds 1.5`: Delay after sending each prompt.
 - `--chat-focus-hotkey ctrl+alt+i`: Shortcut used to focus chat input.
 - `--stop-template stop_button.png`: Enable image matching for stop button.
+- `--stop-template path.png`: Add one stop-button template (repeat flag to add many).
+- `--stop-template-glob .\templates\stop_*.png`: Load many templates via glob.
+- `--template-scales 0.85,0.92,1.0,1.08,1.15`: Scale sweep used per template.
 - `--disable-uia-scan`: Skip UI Automation button-name detection.
 - `--halt-keyword "HALT NOW"`: End monitor early when this text appears in chat output.
 - `--disable-halt-keyword-scan`: Disable early-stop keyword detection.
@@ -116,6 +133,7 @@ You can still override profile values with explicit CLI flags.
 - Prefer `--input-click-x-ratio` and `--input-click-y-ratio` (or profile file values) over absolute pixels. Ratios track the VS Code window size and are more portable across resolutions.
 - Keep VS Code layout stable (chat panel placement, sidebars, zoom level) because ratio clicks assume similar UI structure.
 - Template matching is the least resolution-agnostic part. If monitor scale, theme, or Copilot icon style changes, recapture the stop template.
+- Multi-template + scale sweep reduces recalibration frequency but cannot be fully resolution-agnostic if UI rendering changes drastically.
 - If you move between monitors with very different DPI scaling, recalibrate once per setup for best reliability.
 - UI Automation text detection is generally more robust than image matching and should stay enabled unless it causes false positives in your environment.
 

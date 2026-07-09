@@ -109,6 +109,11 @@ def main() -> int:
         help="Default confidence to store in profile.",
     )
     parser.add_argument(
+        "--template-scales",
+        default="0.85,0.92,1.0,1.08,1.15",
+        help="Comma-separated template scales to store in profile.",
+    )
+    parser.add_argument(
         "--halt-keyword",
         default="HALT NOW",
         help="Halt keyword to store in profile.",
@@ -121,6 +126,13 @@ def main() -> int:
         parser.error("--capture-delay-seconds must be >= 1")
     if not (0.1 <= args.template_confidence <= 1.0):
         parser.error("--template-confidence must be between 0.1 and 1.0")
+
+    try:
+        template_scales = [float(x.strip()) for x in args.template_scales.split(",") if x.strip()]
+    except ValueError:
+        parser.error("--template-scales must contain numeric values")
+    if not template_scales or any(x <= 0.0 for x in template_scales):
+        parser.error("--template-scales values must all be > 0")
 
     window = find_vscode_window(args.vs_title_regex)
     if not window:
@@ -169,7 +181,9 @@ def main() -> int:
     profile = {
         "vs_title_regex": args.vs_title_regex,
         "stop_template": str(template_path),
+        "stop_templates": [str(template_path)],
         "template_confidence": args.template_confidence,
+        "template_scales": template_scales,
         "input_click_x": int(input_x),
         "input_click_y": int(input_y),
         "input_click_x_ratio": round(input_x_ratio, 6),
