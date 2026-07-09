@@ -70,6 +70,14 @@ class HelperFunctionTests(unittest.TestCase):
 
 
 class PromptMonitorBehaviorTests(unittest.TestCase):
+    def test_is_pyautogui_failsafe_exception_by_name(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        FailSafeException = type("FailSafeException", (Exception,), {})
+        self.assertTrue(mon._is_pyautogui_failsafe_exception(FailSafeException("boom")))
+        self.assertFalse(mon._is_pyautogui_failsafe_exception(RuntimeError("boom")))
+
     def test_disallowed_terminal_markers_are_rejected(self) -> None:
         cfg = tool.Config(prompt="x")
         mon = tool.PromptMonitor(cfg)
@@ -648,6 +656,25 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(mon, "_uia_point_is_chat_input", return_value=True),
         ):
             self.assertTrue(mon._focus_verified_chat_input(window, (10, 10)))
+
+    def test_focus_verified_returns_false_on_failsafe_click(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        FailSafeException = type("FailSafeException", (Exception,), {})
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(_x: int, _y: int) -> None:
+                raise FailSafeException("corner")
+
+        window = SimpleNamespace(left=0, top=0, width=100, height=100)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "Desktop", object()),
+        ):
+            self.assertFalse(mon._focus_verified_chat_input(window, (10, 10)))
 
 
 if __name__ == "__main__":

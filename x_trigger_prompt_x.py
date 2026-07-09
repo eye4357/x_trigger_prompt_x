@@ -140,7 +140,17 @@ class PromptMonitor:
                 continue
 
             self._log("Chat idle (stop button not detected). Submitting prompt...")
-            ok = self._submit_prompt(window)
+            try:
+                ok = self._submit_prompt(window)
+            except Exception as exc:
+                if self._is_pyautogui_failsafe_exception(exc):
+                    self._log(
+                        "PyAutoGUI fail-safe triggered (mouse at screen corner). "
+                        "Skipping this submit cycle. Move mouse away from corners and retry."
+                    )
+                    ok = False
+                else:
+                    raise
             if ok:
                 self._submitted += 1
                 self._idle_streak = 0
@@ -399,6 +409,10 @@ class PromptMonitor:
                 time.sleep(0.2)
         return True
 
+    @staticmethod
+    def _is_pyautogui_failsafe_exception(exc: Exception) -> bool:
+        return exc.__class__.__name__ == "FailSafeException"
+
     def _autodetect_chat_input_click(self, window: Any) -> tuple[int, int] | None:
         if Desktop is None:
             return None
@@ -515,7 +529,13 @@ class PromptMonitor:
         if Desktop is None:
             return False
 
-        pyautogui.click(click_xy[0], click_xy[1])
+        try:
+            pyautogui.click(click_xy[0], click_xy[1])
+        except Exception as exc:
+            if self._is_pyautogui_failsafe_exception(exc):
+                self._log("PyAutoGUI fail-safe triggered before focus click; submit skipped.")
+                return False
+            raise
         time.sleep(0.1)
         with suppress(Exception):
             pyautogui.click(click_xy[0], click_xy[1])
