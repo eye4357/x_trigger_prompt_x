@@ -427,6 +427,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         with (
             patch.object(tool, "pyautogui", FakeAutoGui()),
             patch.object(tool, "gw", fake_gw),
+            patch.object(tool, "Desktop", object()),
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_uia_point_is_chat_input", return_value=False),
             patch.object(mon, "_uia_focused_edit_looks_like_chat_input", return_value=True),
@@ -528,6 +529,92 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         window = SimpleNamespace(left=0, top=0, width=1200, height=900)
         with patch.object(tool, "Desktop", FakeDesktop):
             self.assertTrue(mon._uia_point_is_chat_input(window, (500, 730)))
+
+    def test_submit_uses_default_safe_click_when_no_target_found(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=10, top=20, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_autodetect_chat_input_click", return_value=None),
+            patch.object(mon, "_probe_click_for_chat_input", return_value=None),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True) as focus_mock,
+        ):
+            self.assertTrue(mon._submit_prompt(window))
+
+        focus_mock.assert_called_once_with(window, (510, 764))
+
+    def test_focused_chat_input_accepts_lower_pane_sparse_markers_geometry(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 100
+            top = 700
+            right = 500
+            bottom = 920
+
+        class FakeCtrl:
+            element_info = SimpleNamespace(
+                automation_id="",
+                class_name="",
+                control_type="Pane",
+            )
+
+            @staticmethod
+            def has_keyboard_focus() -> bool:
+                return True
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return ""
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                return [FakeCtrl()]
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1200, height=1000)
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertTrue(mon._uia_focused_edit_looks_like_chat_input(window))
 
 
 if __name__ == "__main__":

@@ -91,6 +91,8 @@ class Config:
     input_click_y: int | None = None
     input_click_x_ratio: float | None = None
     input_click_y_ratio: float | None = None
+    default_safe_click_x_ratio: float = 0.50
+    default_safe_click_y_ratio: float = 0.93
     submit_enter_delay_seconds: float = 0.15
     dry_run: bool = False
 
@@ -345,6 +347,10 @@ class PromptMonitor:
             click_xy = self._autodetect_chat_input_click(window)
         if click_xy is None:
             click_xy = self._probe_click_for_chat_input(window)
+        if click_xy is None and not self.config.allow_unsafe_hotkey_focus:
+            # Deterministic fallback for layouts where UIA metadata is sparse.
+            # Safety is still enforced by focused-control verification.
+            click_xy = self._default_safe_input_click(window)
 
         if click_xy is None and not self.config.allow_unsafe_hotkey_focus:
             self._log(
@@ -454,6 +460,12 @@ class PromptMonitor:
 
         return None
 
+    def _default_safe_input_click(self, window: Any) -> tuple[int, int]:
+        left, top, width, height = self._window_region(window)
+        abs_x = left + int(round(width * self.config.default_safe_click_x_ratio))
+        abs_y = top + int(round(height * self.config.default_safe_click_y_ratio))
+        return abs_x, abs_y
+
     def _uia_focused_edit_looks_like_chat_input(self, window: Any) -> bool:
         if Desktop is None:
             return False
@@ -492,7 +504,7 @@ class PromptMonitor:
                 rect_height = max(0, int(rect.bottom - rect.top))
                 rect_width = max(0, int(rect.right - rect.left))
                 center_y = int((rect.top + rect.bottom) / 2)
-                if center_y >= lower_guard_y and rect_height <= 160 and rect_width >= int(width * 0.3):
+                if center_y >= lower_guard_y and rect_height <= 280 and rect_width >= int(width * 0.2):
                     return True
             except Exception:
                 continue
@@ -500,6 +512,9 @@ class PromptMonitor:
         return False
 
     def _focus_verified_chat_input(self, window: Any, click_xy: tuple[int, int]) -> bool:
+        if Desktop is None:
+            return False
+
         pyautogui.click(click_xy[0], click_xy[1])
         time.sleep(0.1)
         with suppress(Exception):
@@ -559,7 +574,7 @@ class PromptMonitor:
                 # Conservative fallback for custom UIA trees.
                 rect_height = max(0, int(rect.bottom - rect.top))
                 rect_width = max(0, int(rect.right - rect.left))
-                if abs_y >= lower_guard_y and rect_height <= 160 and rect_width >= int(width * 0.3):
+                if abs_y >= lower_guard_y and rect_height <= 280 and rect_width >= int(width * 0.2):
                     return True
             except Exception:
                 continue
