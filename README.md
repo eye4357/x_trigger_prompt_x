@@ -144,6 +144,24 @@ mypy
 
 CI is configured in `.github/workflows/ci.yml` to run the same checks on push and pull request.
 
+## Release Checklist
+
+Use this checklist before cutting or publishing a release:
+
+1. Confirm version consistency across `pyproject.toml`, script `--version` outputs, `CHANGELOG.md`, and `CHANGE_CONTROL_PACKET.md`.
+2. Run full local quality gate:
+   - `python -m pytest`
+   - `ruff check .`
+   - `black --check .`
+   - `mypy`
+3. Verify `README.md` examples and flags match the current CLI behavior.
+4. Verify calibration/profile flow still works end-to-end in `--dry-run` mode.
+5. Commit and push to `main`.
+6. Confirm GitHub Actions `Quality Gates` succeeds for the pushed SHA.
+7. Publish or update versioned release notes.
+
+Current versioned notes: `RELEASE_NOTES_0.0.1.md`.
+
 ## Testing Strategy
 
 - Tests are mock-driven and public-safe.
