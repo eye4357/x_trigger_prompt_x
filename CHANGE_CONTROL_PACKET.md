@@ -13,14 +13,14 @@ Productionize `x_trigger_prompt_x` to match repository quality standards used by
 ## Controlled Files
 
 - `README.md`
-- `auto_trigger_copilot_chat.py`
+- `x_trigger_prompt_x.py`
 - `calibrate_trigger_profile.py`
 - `requirements.txt`
 - `requirements-dev.txt`
 - `pyproject.toml`
 - `.vscode/settings.json`
 - `.github/workflows/ci.yml`
-- `tests/test_auto_trigger_copilot_chat.py`
+- `tests/test_x_trigger_prompt_x.py`
 - `tests/test_calibrate_trigger_profile.py`
 - `CHANGELOG.md`
 - `CHANGE_CONTROL_PACKET.md`

@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import auto_trigger_copilot_chat as tool
+import x_trigger_prompt_x as tool
 
 
 class ParseArgsTests(unittest.TestCase):

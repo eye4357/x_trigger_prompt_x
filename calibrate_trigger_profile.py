@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Calibration helper for auto_trigger_copilot_chat.py.
+Calibration helper for x_trigger_prompt_x.py.
 
 This script captures:
 - A stop-button image template cropped from the VS Code window.
@@ -220,8 +220,8 @@ def main() -> int:
 
     print("\nSuggested run command:")
     print(
-        "python auto_trigger_copilot_chat.py "
-        f"--prompt-file .\\prompt.txt --max-prompts 128 --profile-file {profile_path}"
+        "python x_trigger_prompt_x.py "
+        f'--prompt "Continue deterministic glidepath execution." --max-prompts 128 --profile-file {profile_path}'
     )
 
     return 0

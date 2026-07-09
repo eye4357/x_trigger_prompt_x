@@ -16,7 +16,7 @@ Typical scenario:
 
 ## How The Tool Works
 
-Main runtime: `auto_trigger_copilot_chat.py`
+Main runtime: `x_trigger_prompt_x.py`
 
 1. Finds a matching VS Code window.
 2. Detects chat state.
@@ -55,14 +55,14 @@ python -m pip install -r requirements-dev.txt
 Inline prompt:
 
 ```powershell
-python auto_trigger_copilot_chat.py --prompt "Continue deterministic glidepath execution." --max-prompts 32
+python x_trigger_prompt_x.py --prompt "Continue deterministic glidepath execution." --max-prompts 32
 ```
 
 Profile-based run (recommended):
 
 ```powershell
 python calibrate_trigger_profile.py
-python auto_trigger_copilot_chat.py --prompt "Continue deterministic glidepath execution." --max-prompts 128 --profile-file .\trigger_profile.json
+python x_trigger_prompt_x.py --prompt "Continue deterministic glidepath execution." --max-prompts 128 --profile-file .\trigger_profile.json
 ```
 
 ## Run xpromptreadmex In A Visible Desktop Window (PowerShell)
@@ -86,7 +86,7 @@ $halt = "HALT NOW"
 Start-Process powershell.exe -WorkingDirectory "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_trigger_prompt_x" -ArgumentList @(
    "-NoExit",
    "-Command",
-   "`$prompt = @'" + $prompt + "'@; c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe auto_trigger_copilot_chat.py --prompt `$prompt --halt-keyword '$halt' --max-prompts 128"
+   "`$prompt = @'" + $prompt + "'@; c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe x_trigger_prompt_x.py --prompt `$prompt --halt-keyword '$halt' --max-prompts 128"
 )
 
 ```
@@ -104,13 +104,13 @@ Default halt keyword is `HALT NOW`.
 If that keyword appears in chat output, the monitor exits early.
 
 ```powershell
-python auto_trigger_copilot_chat.py --prompt "Continue deterministic glidepath execution." --halt-keyword "HALT NOW"
+python x_trigger_prompt_x.py --prompt "Continue deterministic glidepath execution." --halt-keyword "HALT NOW"
 ```
 
 Disable halt keyword scan:
 
 ```powershell
-python auto_trigger_copilot_chat.py --prompt "Continue deterministic glidepath execution." --disable-halt-keyword-scan
+python x_trigger_prompt_x.py --prompt "Continue deterministic glidepath execution." --disable-halt-keyword-scan
 ```
 
 ## Reliability And Resolution Portability
@@ -125,7 +125,7 @@ Best reliability stack:
 Example:
 
 ```powershell
-python auto_trigger_copilot_chat.py `
+python x_trigger_prompt_x.py `
    --prompt "Continue deterministic glidepath execution." `
   --max-prompts 256 `
   --stop-template .\templates\stop_dark.png `
