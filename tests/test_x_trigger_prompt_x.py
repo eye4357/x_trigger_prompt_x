@@ -472,6 +472,28 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         self.assertEqual(clicks, [(920, 872)])
 
+    def test_verified_probe_returns_anchor_to_avoid_double_hard_lock_offset(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        clicks: list[tuple[int, int]] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(x: int, y: int) -> None:
+                clicks.append((x, y))
+
+        window = SimpleNamespace(left=100, top=200, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_uia_focused_edit_looks_like_chat_input", return_value=True),
+        ):
+            self.assertEqual(mon._probe_click_for_chat_input(window), (920, 936))
+
+        self.assertEqual(clicks, [(920, 872)])
+
     def test_focus_verified_accepts_focused_edit_fallback(self) -> None:
         cfg = tool.Config(prompt="x")
         mon = tool.PromptMonitor(cfg)

@@ -517,7 +517,7 @@ class PromptMonitor:
             time.sleep(0.06)
 
         if self._uia_focused_edit_looks_like_chat_input(window):
-            return abs_x, abs_y
+            return anchor_x, anchor_y
 
         return None
 
