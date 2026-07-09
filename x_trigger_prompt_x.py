@@ -321,10 +321,13 @@ class PromptMonitor:
         time.sleep(0.15)
 
         click_xy = self._resolve_input_click(window)
+        if click_xy is None:
+            click_xy = self._autodetect_chat_input_click(window)
+
         if click_xy is None and not self.config.allow_unsafe_hotkey_focus:
             self._log(
-                "Refusing submit: chat input click coordinates are required for safe paste targeting. "
-                "Set --input-click-x/y or --input-click-x-ratio/y-ratio."
+                "Refusing submit: no verified chat input target found for safe paste targeting. "
+                "Set --input-click-x/y or --input-click-x-ratio/y-ratio, or ensure UIA can locate chat input."
             )
             return False
 
@@ -367,6 +370,52 @@ class PromptMonitor:
                     break
                 time.sleep(0.2)
         return True
+
+    def _autodetect_chat_input_click(self, window: Any) -> tuple[int, int] | None:
+        if Desktop is None:
+            return None
+
+        left, top, width, height = self._window_region(window)
+        lower_guard_y = top + int(height * 0.55)
+
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return None
+
+        scored: list[tuple[int, int, int, int]] = []
+        for ctrl in target.descendants(control_type="Edit"):
+            try:
+                rect = ctrl.rectangle()
+                if rect.bottom < lower_guard_y:
+                    continue
+
+                name = (ctrl.window_text() or "").strip().lower()
+                element_info = getattr(ctrl, "element_info", None)
+                automation_id = ""
+                class_name = ""
+                if element_info is not None:
+                    automation_id = str(getattr(element_info, "automation_id", "") or "").lower()
+                    class_name = str(getattr(element_info, "class_name", "") or "").lower()
+
+                marker_text = f"{name} {automation_id} {class_name}"
+                has_chat_marker = any(token in marker_text for token in ("chat", "copilot", "prompt", "message"))
+                marker_score = 1 if has_chat_marker else 0
+
+                center_x = max(left, min(left + width - 1, int((rect.left + rect.right) / 2)))
+                center_y = max(top, min(top + height - 1, int((rect.top + rect.bottom) / 2)))
+
+                # Prefer explicit chat markers first, then lower controls.
+                scored.append((marker_score, center_y, center_x, center_y))
+            except Exception:
+                continue
+
+        if not scored:
+            return None
+
+        scored.sort(reverse=True)
+        _, _, x, y = scored[0]
+        return x, y
 
     def _focus_verified_chat_input(self, window: Any, click_xy: tuple[int, int]) -> bool:
         pyautogui.click(click_xy[0], click_xy[1])

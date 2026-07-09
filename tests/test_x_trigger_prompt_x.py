@@ -159,7 +159,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._should_halt(SimpleNamespace()))
 
-    def test_submit_refuses_without_click_target_by_default(self) -> None:
+    def test_submit_refuses_without_verified_target_by_default(self) -> None:
         cfg = tool.Config(
             prompt="x",
             chat_focus_hotkey="ctrl+alt+i",
@@ -190,6 +190,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(tool, "pyperclip", FakeClip()),
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_autodetect_chat_input_click", return_value=None),
         ):
             self.assertFalse(mon._submit_prompt(window))
             self.assertFalse(mon._submit_prompt(window))
@@ -267,6 +268,39 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(tool, "pyperclip", FakeClip()),
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True),
+        ):
+            self.assertTrue(mon._submit_prompt(window))
+
+    def test_submit_uses_autodetected_target_when_available(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_autodetect_chat_input_click", return_value=(100, 200)),
             patch.object(mon, "_focus_verified_chat_input", return_value=True),
         ):
             self.assertTrue(mon._submit_prompt(window))
