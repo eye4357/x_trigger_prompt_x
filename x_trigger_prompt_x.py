@@ -81,6 +81,7 @@ class Config:
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
     reuse_chat_focus_hotkey: bool = False
     allow_unsafe_hotkey_focus: bool = False
+    allow_verified_hotkey_fallback: bool = True
     stop_templates: tuple[Path, ...] = ()
     template_confidence: float = 0.9
     template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
@@ -369,8 +370,8 @@ class PromptMonitor:
             )
             return False
 
-        if click_xy is not None:
-            if not self._focus_verified_chat_input(window, click_xy):
+        if click_xy is not None and not self._focus_verified_chat_input(window, click_xy):
+            if not self._try_verified_hotkey_focus(window):
                 self._log("Refusing submit: unable to verify chat input focus target.")
                 return False
         elif self.config.allow_unsafe_hotkey_focus:
@@ -408,6 +409,21 @@ class PromptMonitor:
                     break
                 time.sleep(0.2)
         return True
+
+    def _try_verified_hotkey_focus(self, window: Any) -> bool:
+        if not self.config.allow_verified_hotkey_fallback:
+            return False
+
+        keys = [k.strip() for k in self.config.chat_focus_hotkey.split("+") if k.strip()]
+        if not keys:
+            return False
+
+        with suppress(Exception):
+            pyautogui.hotkey(*keys)
+            self._chat_focus_hotkey_used = True
+            time.sleep(0.15)
+
+        return self._uia_focused_edit_looks_like_chat_input(window)
 
     @staticmethod
     def _is_pyautogui_failsafe_exception(exc: Exception) -> bool:
@@ -819,6 +835,14 @@ def parse_args(argv: list[str]) -> Config:
         ),
     )
     parser.add_argument(
+        "--disable-verified-hotkey-fallback",
+        action="store_true",
+        help=(
+            "Disable verified hotkey fallback after click-focus verification fails. "
+            "Enabled by default and only accepted when UIA confirms chat input focus."
+        ),
+    )
+    parser.add_argument(
         "--stop-template",
         type=Path,
         action="append",
@@ -1002,6 +1026,7 @@ def parse_args(argv: list[str]) -> Config:
         chat_focus_hotkey=chat_focus_hotkey,
         reuse_chat_focus_hotkey=args.reuse_chat_focus_hotkey,
         allow_unsafe_hotkey_focus=args.allow_unsafe_hotkey_focus,
+        allow_verified_hotkey_fallback=not args.disable_verified_hotkey_fallback,
         stop_templates=tuple(stop_templates),
         template_confidence=template_confidence,
         template_scales=template_scales,

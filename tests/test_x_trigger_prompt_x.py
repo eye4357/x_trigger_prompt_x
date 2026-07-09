@@ -249,6 +249,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
             patch.object(mon, "_autodetect_chat_input_click", return_value=None),
+            patch.object(mon, "_try_verified_hotkey_focus", return_value=False),
         ):
             self.assertFalse(mon._submit_prompt(window))
             self.assertFalse(mon._submit_prompt(window))
@@ -675,6 +676,77 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(tool, "Desktop", object()),
         ):
             self.assertFalse(mon._focus_verified_chat_input(window, (10, 10)))
+
+    def test_submit_uses_verified_hotkey_fallback_when_click_verification_fails(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            chat_focus_hotkey="ctrl+alt+i",
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        hotkey_calls: list[tuple[str, ...]] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*keys: str) -> None:
+                hotkey_calls.append(tuple(keys))
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_focus_verified_chat_input", return_value=False),
+            patch.object(mon, "_try_verified_hotkey_focus", return_value=True) as fallback_mock,
+        ):
+            self.assertTrue(mon._submit_prompt(window))
+
+        fallback_mock.assert_called_once()
+
+    def test_submit_refuses_when_verified_hotkey_fallback_fails(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_focus_verified_chat_input", return_value=False),
+            patch.object(mon, "_try_verified_hotkey_focus", return_value=False),
+        ):
+            self.assertFalse(mon._submit_prompt(window))
 
 
 if __name__ == "__main__":
