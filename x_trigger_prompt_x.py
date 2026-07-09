@@ -81,7 +81,7 @@ class Config:
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
     reuse_chat_focus_hotkey: bool = False
     allow_unsafe_hotkey_focus: bool = False
-    allow_verified_hotkey_fallback: bool = True
+    allow_verified_hotkey_fallback: bool = False
     stop_templates: tuple[Path, ...] = ()
     template_confidence: float = 0.9
     template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
@@ -548,6 +548,43 @@ class PromptMonitor:
 
         return False
 
+    def _uia_focused_control_looks_like_safe_lower_input(self, window: Any) -> bool:
+        if Desktop is None:
+            return False
+
+        _left, top, width, height = self._window_region(window)
+        lower_guard_y = top + int(height * 0.55)
+
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return False
+
+        try:
+            controls = target.descendants()
+        except Exception:
+            return False
+
+        for ctrl in controls:
+            try:
+                if not bool(getattr(ctrl, "has_keyboard_focus", lambda: False)()):
+                    continue
+
+                marker_text = self._build_control_marker_text(ctrl)
+                if self._is_disallowed_input_target(marker_text):
+                    return False
+
+                rect = ctrl.rectangle()
+                rect_height = max(0, int(rect.bottom - rect.top))
+                rect_width = max(0, int(rect.right - rect.left))
+                center_y = int((rect.top + rect.bottom) / 2)
+                if center_y >= lower_guard_y and rect_height <= 320 and rect_width >= int(width * 0.18):
+                    return True
+            except Exception:
+                continue
+
+        return False
+
     def _focus_verified_chat_input(self, window: Any, click_xy: tuple[int, int]) -> bool:
         if Desktop is None:
             return False
@@ -579,7 +616,11 @@ class PromptMonitor:
 
         # Some VS Code/Copilot builds expose focused composer edit controls
         # with non-standard bounds; allow focused-edit verification fallback.
-        return self._uia_focused_edit_looks_like_chat_input(window)
+        if self._uia_focused_edit_looks_like_chat_input(window):
+            return True
+
+        # Final safe fallback for sparse UIA metadata.
+        return self._uia_focused_control_looks_like_safe_lower_input(window)
 
     def _hard_lock_above_click(self, window: Any, click_xy: tuple[int, int]) -> tuple[int, int]:
         left, top, width, height = self._window_region(window)
@@ -857,11 +898,11 @@ def parse_args(argv: list[str]) -> Config:
         ),
     )
     parser.add_argument(
-        "--disable-verified-hotkey-fallback",
+        "--allow-verified-hotkey-fallback",
         action="store_true",
         help=(
-            "Disable verified hotkey fallback after click-focus verification fails. "
-            "Enabled by default and only accepted when UIA confirms chat input focus."
+            "Allow verified hotkey fallback after click-focus verification fails. "
+            "Off by default to avoid toggling/collapsing chat panels."
         ),
     )
     parser.add_argument(
@@ -1048,7 +1089,7 @@ def parse_args(argv: list[str]) -> Config:
         chat_focus_hotkey=chat_focus_hotkey,
         reuse_chat_focus_hotkey=args.reuse_chat_focus_hotkey,
         allow_unsafe_hotkey_focus=args.allow_unsafe_hotkey_focus,
-        allow_verified_hotkey_fallback=not args.disable_verified_hotkey_fallback,
+        allow_verified_hotkey_fallback=args.allow_verified_hotkey_fallback,
         stop_templates=tuple(stop_templates),
         template_confidence=template_confidence,
         template_scales=template_scales,

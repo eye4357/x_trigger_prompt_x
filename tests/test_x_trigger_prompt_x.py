@@ -725,10 +725,35 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertFalse(mon._focus_verified_chat_input(window, (10, 10)))
 
+    def test_focus_verified_accepts_safe_lower_focused_control_fallback(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(_x: int, _y: int) -> None:
+                return None
+
+        window = SimpleNamespace(left=0, top=0, width=100, height=100)
+        active = SimpleNamespace(left=0, top=0)
+        fake_gw = SimpleNamespace(getActiveWindow=lambda: active)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "gw", fake_gw),
+            patch.object(tool, "Desktop", object()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_uia_point_is_chat_input", return_value=False),
+            patch.object(mon, "_uia_focused_edit_looks_like_chat_input", return_value=False),
+            patch.object(mon, "_uia_focused_control_looks_like_safe_lower_input", return_value=True),
+        ):
+            self.assertTrue(mon._focus_verified_chat_input(window, (10, 10)))
+
     def test_submit_uses_verified_hotkey_fallback_when_click_verification_fails(self) -> None:
         cfg = tool.Config(
             prompt="x",
             chat_focus_hotkey="ctrl+alt+i",
+            allow_verified_hotkey_fallback=True,
             post_submit_activity_wait_seconds=0.0,
         )
         mon = tool.PromptMonitor(cfg)
