@@ -1,0 +1,44 @@
+[project]
+name = "x-trigger-prompt-x"
+version = "0.0.1"
+description = "Autonomous VS Code Copilot Chat trigger loop with idle/active detection and safe halt signaling."
+requires-python = ">=3.10"
+dependencies = [
+    "pyautogui>=0.9.54",
+    "pygetwindow>=0.0.9",
+    "pyperclip>=1.9.0",
+    "pywinauto>=0.6.8",
+    "opencv-python>=4.10.0.84",
+    "Pillow>=10.4.0",
+    "numpy>=2.0.0",
+]
+
+[tool.setuptools]
+py-modules = ["auto_trigger_copilot_chat", "calibrate_trigger_profile"]
+
+[project.optional-dependencies]
+dev = [
+    "black==24.10.0",
+    "mypy==1.14.1",
+    "pytest==8.3.4",
+    "ruff==0.8.6",
+]
+
+[tool.black]
+line-length = 120
+target-version = ["py310"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["B", "C4", "E", "F", "I", "RUF", "SIM", "UP"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["auto_trigger_copilot_chat.py", "calibrate_trigger_profile.py", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

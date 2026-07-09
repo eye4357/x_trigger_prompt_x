@@ -25,51 +25,22 @@ import re
 import signal
 import sys
 import time
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any
 
-
-# Lazy imports for runtime dependency messages
-try:
-    import pyautogui
-except Exception as exc:  # pragma: no cover
-    raise SystemExit(
-        "Missing dependency: pyautogui. Install from requirements.txt."
-    ) from exc
-
-try:
-    import pygetwindow as gw
-except Exception as exc:  # pragma: no cover
-    raise SystemExit(
-        "Missing dependency: pygetwindow. Install from requirements.txt."
-    ) from exc
-
-try:
-    import pyperclip
-except Exception as exc:  # pragma: no cover
-    raise SystemExit(
-        "Missing dependency: pyperclip. Install from requirements.txt."
-    ) from exc
-
-# Optional dependency; script works without it if template matching is provided.
-try:
-    from pywinauto import Desktop
-except Exception:  # pragma: no cover
-    Desktop = None
-
-try:
-    import cv2
-except Exception:  # pragma: no cover
-    cv2 = None
-
-try:
-    import numpy as np
-except Exception:  # pragma: no cover
-    np = None
+# Runtime dependencies are loaded on-demand to keep import-time behavior CI-safe.
+pyautogui: Any = None
+gw: Any = None
+pyperclip: Any = None
+Desktop: Any = None
+cv2: Any = None
+np: Any = None
 
 
 DEFAULT_SHORTCUT = "ctrl+alt+i"
+VERSION = "0.0.1"
 ACTIVE_NAME_PATTERNS = (
     re.compile(r"\bstop\b", re.IGNORECASE),
     re.compile(r"\binterrupt\b", re.IGNORECASE),
@@ -85,17 +56,17 @@ class Config:
     submit_cooldown_seconds: float = 1.5
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
-    prompt_file: Optional[Path] = None
+    prompt_file: Path | None = None
     stop_templates: tuple[Path, ...] = ()
     template_confidence: float = 0.9
     template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
     use_uia_scan: bool = True
     halt_keyword: str = "HALT NOW"
     disable_halt_keyword_scan: bool = False
-    input_click_x: Optional[int] = None
-    input_click_y: Optional[int] = None
-    input_click_x_ratio: Optional[float] = None
-    input_click_y_ratio: Optional[float] = None
+    input_click_x: int | None = None
+    input_click_y: int | None = None
+    input_click_x_ratio: float | None = None
+    input_click_y_ratio: float | None = None
     dry_run: bool = False
 
 
@@ -105,7 +76,7 @@ class PromptMonitor:
         self._stop_requested = False
         self._submitted = 0
 
-    def request_stop(self, *_args) -> None:
+    def request_stop(self, *_args: object) -> None:
         self._stop_requested = True
 
     def run(self) -> int:
@@ -118,9 +89,7 @@ class PromptMonitor:
                 continue
 
             if self._should_halt(window):
-                self._log(
-                    "Halt keyword detected in chat output. Ending monitor early."
-                )
+                self._log("Halt keyword detected in chat output. Ending monitor early.")
                 break
 
             is_active = self._is_chat_active(window)
@@ -133,9 +102,7 @@ class PromptMonitor:
             ok = self._submit_prompt(window)
             if ok:
                 self._submitted += 1
-                self._log(
-                    f"Submitted {self._submitted}/{self.config.max_prompts}."
-                )
+                self._log(f"Submitted {self._submitted}/{self.config.max_prompts}.")
             else:
                 self._log("Submit attempt failed. Retrying...")
 
@@ -144,7 +111,7 @@ class PromptMonitor:
         self._log("Finished.")
         return 0
 
-    def _should_halt(self, window) -> bool:
+    def _should_halt(self, window: Any) -> bool:
         if self.config.disable_halt_keyword_scan:
             return False
         if not self.config.halt_keyword.strip():
@@ -156,7 +123,7 @@ class PromptMonitor:
         except Exception:
             return False
 
-    def _find_vscode_window(self):
+    def _find_vscode_window(self) -> Any | None:
         pattern = re.compile(self.config.vs_title_regex, re.IGNORECASE)
         try:
             candidates = [w for w in gw.getAllWindows() if w.title and pattern.match(w.title)]
@@ -181,14 +148,14 @@ class PromptMonitor:
             return visible[0]
         return candidates[0]
 
-    def _window_region(self, window) -> Tuple[int, int, int, int]:
+    def _window_region(self, window: Any) -> tuple[int, int, int, int]:
         left = max(int(window.left), 0)
         top = max(int(window.top), 0)
         width = max(int(window.width), 1)
         height = max(int(window.height), 1)
         return left, top, width, height
 
-    def _is_chat_active(self, window) -> bool:
+    def _is_chat_active(self, window: Any) -> bool:
         # First try UI automation (if available), then image matching fallback.
         if self.config.use_uia_scan and Desktop is not None:
             try:
@@ -206,7 +173,7 @@ class PromptMonitor:
 
         return False
 
-    def _uia_detect_stop_button(self, window) -> bool:
+    def _uia_detect_stop_button(self, window: Any) -> bool:
         app = Desktop(backend="uia")
         target = app.window(title_re=self.config.vs_title_regex)
         if not target.exists(timeout=0.5):
@@ -224,7 +191,7 @@ class PromptMonitor:
                 return True
         return False
 
-    def _uia_detect_halt_keyword(self, window) -> bool:
+    def _uia_detect_halt_keyword(self, window: Any) -> bool:
         app = Desktop(backend="uia")
         target = app.window(title_re=self.config.vs_title_regex)
         if not target.exists(timeout=0.5):
@@ -241,7 +208,7 @@ class PromptMonitor:
                 return True
         return False
 
-    def _template_detect_stop_button(self, window) -> bool:
+    def _template_detect_stop_button(self, window: Any) -> bool:
         if not self.config.stop_templates:
             return False
         region = self._window_region(window)
@@ -249,7 +216,7 @@ class PromptMonitor:
             return self._template_detect_with_cv2(region)
         return self._template_detect_with_pyautogui(region)
 
-    def _template_detect_with_pyautogui(self, region: Tuple[int, int, int, int]) -> bool:
+    def _template_detect_with_pyautogui(self, region: tuple[int, int, int, int]) -> bool:
         # Fallback matcher when OpenCV is unavailable: no scale sweep.
         for template_path in self.config.stop_templates:
             match = pyautogui.locateOnScreen(
@@ -262,7 +229,7 @@ class PromptMonitor:
                 return True
         return False
 
-    def _template_detect_with_cv2(self, region: Tuple[int, int, int, int]) -> bool:
+    def _template_detect_with_cv2(self, region: tuple[int, int, int, int]) -> bool:
         shot = pyautogui.screenshot(region=region).convert("L")
         screen_gray = np.array(shot)
         screen_h, screen_w = screen_gray.shape[:2]
@@ -295,11 +262,9 @@ class PromptMonitor:
 
         return False
 
-    def _submit_prompt(self, window) -> bool:
-        try:
+    def _submit_prompt(self, window: Any) -> bool:
+        with suppress(Exception):
             window.activate()
-        except Exception:
-            pass
 
         time.sleep(0.15)
 
@@ -323,14 +288,11 @@ class PromptMonitor:
         pyautogui.press("enter")
         return True
 
-    def _resolve_input_click(self, window) -> Optional[Tuple[int, int]]:
+    def _resolve_input_click(self, window: Any) -> tuple[int, int] | None:
         if self.config.input_click_x is not None and self.config.input_click_y is not None:
             return int(self.config.input_click_x), int(self.config.input_click_y)
 
-        if (
-            self.config.input_click_x_ratio is not None
-            and self.config.input_click_y_ratio is not None
-        ):
+        if self.config.input_click_x_ratio is not None and self.config.input_click_y_ratio is not None:
             left, top, width, height = self._window_region(window)
             abs_x = left + int(round(width * self.config.input_click_x_ratio))
             abs_y = top + int(round(height * self.config.input_click_y_ratio))
@@ -345,9 +307,7 @@ class PromptMonitor:
 
     def _print_header(self) -> None:
         self._log("Copilot Chat auto-trigger started.")
-        self._log(
-            f"Configured submissions: {self.config.max_prompts} (limit: 512)."
-        )
+        self._log(f"Configured submissions: {self.config.max_prompts} (limit: 512).")
         if self.config.stop_templates:
             self._log(
                 f"Template variants: {len(self.config.stop_templates)}; "
@@ -378,16 +338,68 @@ def _parse_scales_csv(scales_csv: str, parser: argparse.ArgumentParser) -> tuple
     return tuple(unique)
 
 
-def _resolve_profile_path(raw_path: str, profile_file: Optional[Path]) -> Path:
+def _resolve_profile_path(raw_path: str, profile_file: Path | None) -> Path:
     candidate = Path(raw_path)
     if not candidate.is_absolute() and profile_file:
         candidate = profile_file.parent / candidate
     return candidate
 
 
+def _ensure_runtime_dependencies() -> None:
+    global pyautogui, gw, pyperclip, Desktop, cv2, np
+
+    if pyautogui is None:
+        try:
+            import pyautogui as _pyautogui  # type: ignore[import-untyped]
+        except Exception as exc:  # pragma: no cover
+            raise SystemExit("Missing dependency: pyautogui. Install runtime dependencies first.") from exc
+        pyautogui = _pyautogui
+
+    if gw is None:
+        try:
+            import pygetwindow as _gw  # type: ignore[import-untyped]
+        except Exception as exc:  # pragma: no cover
+            raise SystemExit("Missing dependency: pygetwindow. Install runtime dependencies first.") from exc
+        gw = _gw
+
+    if pyperclip is None:
+        try:
+            import pyperclip as _pyperclip  # type: ignore[import-untyped]
+        except Exception as exc:  # pragma: no cover
+            raise SystemExit("Missing dependency: pyperclip. Install runtime dependencies first.") from exc
+        pyperclip = _pyperclip
+
+    if Desktop is None:
+        try:
+            from pywinauto import Desktop as _Desktop  # type: ignore[import-untyped]
+
+            Desktop = _Desktop
+        except Exception:  # pragma: no cover
+            Desktop = None
+
+    if cv2 is None:
+        try:
+            import cv2 as _cv2
+
+            cv2 = _cv2
+        except Exception:  # pragma: no cover
+            cv2 = None
+
+    if np is None:
+        try:
+            import numpy as _np
+
+            np = _np
+        except Exception:  # pragma: no cover
+            np = None
+
+
 def parse_args(argv: list[str]) -> Config:
-    parser = argparse.ArgumentParser(
-        description="Auto-submit prompt(s) to VS Code Copilot Chat when chat is idle."
+    parser = argparse.ArgumentParser(description="Auto-submit prompt(s) to VS Code Copilot Chat when chat is idle.")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {VERSION}",
     )
     parser.add_argument(
         "--prompt",
@@ -430,10 +442,7 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument(
         "--chat-focus-hotkey",
         default=DEFAULT_SHORTCUT,
-        help=(
-            "Hotkey to focus Copilot Chat input, e.g. ctrl+alt+i. "
-            "Ignored if --input-click-x/y are provided."
-        ),
+        help=("Hotkey to focus Copilot Chat input, e.g. ctrl+alt+i. " "Ignored if --input-click-x/y are provided."),
     )
     parser.add_argument(
         "--stop-template",
@@ -445,8 +454,7 @@ def parse_args(argv: list[str]) -> Config:
         "--stop-template-glob",
         action="append",
         help=(
-            "Glob pattern for stop templates (example: .\\templates\\stop_*.png). "
-            "Can be provided multiple times."
+            "Glob pattern for stop templates (example: .\\templates\\stop_*.png). " "Can be provided multiple times."
         ),
     )
     parser.add_argument(
@@ -458,10 +466,7 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument(
         "--template-scales",
         default="0.85,0.92,1.0,1.08,1.15",
-        help=(
-            "Comma-separated scale sweep for template matching "
-            "(example: 0.85,0.92,1.0,1.08,1.15)."
-        ),
+        help=("Comma-separated scale sweep for template matching " "(example: 0.85,0.92,1.0,1.08,1.15)."),
     )
     parser.add_argument(
         "--disable-uia-scan",
@@ -494,18 +499,12 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument(
         "--input-click-x-ratio",
         type=float,
-        help=(
-            "Window-relative X coordinate in [0.0, 1.0]. "
-            "More resolution-agnostic than absolute X."
-        ),
+        help=("Window-relative X coordinate in [0.0, 1.0]. " "More resolution-agnostic than absolute X."),
     )
     parser.add_argument(
         "--input-click-y-ratio",
         type=float,
-        help=(
-            "Window-relative Y coordinate in [0.0, 1.0]. "
-            "More resolution-agnostic than absolute Y."
-        ),
+        help=("Window-relative Y coordinate in [0.0, 1.0]. " "More resolution-agnostic than absolute Y."),
     )
     parser.add_argument(
         "--dry-run",
@@ -515,7 +514,7 @@ def parse_args(argv: list[str]) -> Config:
 
     args = parser.parse_args(argv)
 
-    profile: dict[str, object] = {}
+    profile: dict[str, Any] = {}
     if args.profile_file:
         if not args.profile_file.exists():
             parser.error(f"Profile file does not exist: {args.profile_file}")
@@ -552,9 +551,7 @@ def parse_args(argv: list[str]) -> Config:
                 stop_templates.append(_resolve_profile_path(item, args.profile_file))
 
     if not stop_templates and isinstance(profile.get("stop_template"), str):
-        stop_templates.append(
-            _resolve_profile_path(str(profile["stop_template"]), args.profile_file)
-        )
+        stop_templates.append(_resolve_profile_path(str(profile["stop_template"]), args.profile_file))
 
     if args.stop_template_glob:
         for pattern in args.stop_template_glob:
@@ -569,10 +566,7 @@ def parse_args(argv: list[str]) -> Config:
             parser.error(f"Stop template file does not exist: {template}")
 
     template_scales = _parse_scales_csv(args.template_scales, parser)
-    if (
-        args.template_scales == "0.85,0.92,1.0,1.08,1.15"
-        and isinstance(profile.get("template_scales"), list)
-    ):
+    if args.template_scales == "0.85,0.92,1.0,1.08,1.15" and isinstance(profile.get("template_scales"), list):
         profile_scale_items = ",".join(str(s) for s in profile["template_scales"])
         template_scales = _parse_scales_csv(profile_scale_items, parser)
 
@@ -585,21 +579,17 @@ def parse_args(argv: list[str]) -> Config:
         input_click_x = int(profile["input_click_x"])
     if input_click_y is None and isinstance(profile.get("input_click_y"), int):
         input_click_y = int(profile["input_click_y"])
-    if input_click_x_ratio is None and isinstance(profile.get("input_click_x_ratio"), (int, float)):
+    if input_click_x_ratio is None and isinstance(profile.get("input_click_x_ratio"), int | float):
         input_click_x_ratio = float(profile["input_click_x_ratio"])
-    if input_click_y_ratio is None and isinstance(profile.get("input_click_y_ratio"), (int, float)):
+    if input_click_y_ratio is None and isinstance(profile.get("input_click_y_ratio"), int | float):
         input_click_y_ratio = float(profile["input_click_y_ratio"])
 
     if (input_click_x is None) != (input_click_y is None):
         parser.error("Provide both --input-click-x and --input-click-y, or neither.")
     if (input_click_x_ratio is None) != (input_click_y_ratio is None):
-        parser.error(
-            "Provide both --input-click-x-ratio and --input-click-y-ratio, or neither."
-        )
+        parser.error("Provide both --input-click-x-ratio and --input-click-y-ratio, or neither.")
     if input_click_x is not None and input_click_x_ratio is not None:
-        parser.error(
-            "Use absolute input click coordinates OR ratio coordinates, not both."
-        )
+        parser.error("Use absolute input click coordinates OR ratio coordinates, not both.")
     if input_click_x_ratio is not None and not (0.0 <= input_click_x_ratio <= 1.0):
         parser.error("--input-click-x-ratio must be between 0.0 and 1.0.")
     if input_click_y_ratio is not None and not (0.0 <= input_click_y_ratio <= 1.0):
@@ -614,10 +604,7 @@ def parse_args(argv: list[str]) -> Config:
         chat_focus_hotkey = str(profile["chat_focus_hotkey"])
 
     template_confidence = args.template_confidence
-    if (
-        template_confidence == 0.9
-        and isinstance(profile.get("template_confidence"), (int, float))
-    ):
+    if template_confidence == 0.9 and isinstance(profile.get("template_confidence"), int | float):
         template_confidence = float(profile["template_confidence"])
 
     halt_keyword = args.halt_keyword
@@ -647,6 +634,8 @@ def parse_args(argv: list[str]) -> Config:
 
 
 def main(argv: list[str]) -> int:
+    _ensure_runtime_dependencies()
+
     pyautogui.FAILSAFE = True
     pyautogui.PAUSE = 0.05
 

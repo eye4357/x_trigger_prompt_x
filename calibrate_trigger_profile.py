@@ -14,21 +14,34 @@ import argparse
 import json
 import re
 import time
+from contextlib import suppress
 from pathlib import Path
-from typing import Tuple
+from typing import Any
 
-try:
-    import pyautogui
-except Exception as exc:  # pragma: no cover
-    raise SystemExit("Missing dependency: pyautogui") from exc
-
-try:
-    import pygetwindow as gw
-except Exception as exc:  # pragma: no cover
-    raise SystemExit("Missing dependency: pygetwindow") from exc
+VERSION = "0.0.1"
+pyautogui: Any = None
+gw: Any = None
 
 
-def find_vscode_window(vs_title_regex: str):
+def _ensure_runtime_dependencies() -> None:
+    global pyautogui, gw
+
+    if pyautogui is None:
+        try:
+            import pyautogui as _pyautogui  # type: ignore[import-untyped]
+        except Exception as exc:  # pragma: no cover
+            raise SystemExit("Missing dependency: pyautogui") from exc
+        pyautogui = _pyautogui
+
+    if gw is None:
+        try:
+            import pygetwindow as _gw  # type: ignore[import-untyped]
+        except Exception as exc:  # pragma: no cover
+            raise SystemExit("Missing dependency: pygetwindow") from exc
+        gw = _gw
+
+
+def find_vscode_window(vs_title_regex: str) -> Any | None:
     pattern = re.compile(vs_title_regex, re.IGNORECASE)
     windows = [w for w in gw.getAllWindows() if w.title and pattern.match(w.title)]
     if not windows:
@@ -42,7 +55,7 @@ def find_vscode_window(vs_title_regex: str):
     return windows[0]
 
 
-def window_region(window) -> Tuple[int, int, int, int]:
+def window_region(window: Any) -> tuple[int, int, int, int]:
     left = max(int(window.left), 0)
     top = max(int(window.top), 0)
     width = max(int(window.width), 1)
@@ -56,7 +69,7 @@ def countdown(seconds: int) -> None:
         time.sleep(1.0)
 
 
-def ask_for_point(message: str, delay_seconds: int) -> Tuple[int, int]:
+def ask_for_point(message: str, delay_seconds: int) -> tuple[int, int]:
     print(message, flush=True)
     input("Press Enter when ready. ")
     countdown(delay_seconds)
@@ -72,6 +85,11 @@ def clamp(value: int, low: int, high: int) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Calibrate stop template and input coordinates for Copilot trigger script."
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {VERSION}",
     )
     parser.add_argument(
         "--vs-title-regex",
@@ -119,6 +137,7 @@ def main() -> int:
         help="Halt keyword to store in profile.",
     )
     args = parser.parse_args()
+    _ensure_runtime_dependencies()
 
     if args.template_size < 16:
         parser.error("--template-size must be >= 16")
@@ -138,10 +157,8 @@ def main() -> int:
     if not window:
         raise SystemExit("No VS Code window matched --vs-title-regex")
 
-    try:
+    with suppress(Exception):
         window.activate()
-    except Exception:
-        pass
 
     left, top, width, height = window_region(window)
     print(f"Using VS Code window: left={left}, top={top}, width={width}, height={height}")
