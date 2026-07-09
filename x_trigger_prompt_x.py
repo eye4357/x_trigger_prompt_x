@@ -441,11 +441,9 @@ class PromptMonitor:
                 abs_x = left + int(round(width * x_ratio))
                 abs_y = top + int(round(height * y_ratio))
 
-                with suppress(Exception):
-                    pyautogui.click(abs_x, abs_y)
-                    time.sleep(0.06)
-
-                if self._uia_focused_edit_looks_like_chat_input(window):
+                # Probe candidate points without moving/clicking the mouse.
+                # This avoids cursor roaming when no valid chat input is present.
+                if self._uia_point_is_chat_input(window, (abs_x, abs_y)):
                     return abs_x, abs_y
 
         return None
