@@ -379,7 +379,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         mon = tool.PromptMonitor(cfg)
         window = SimpleNamespace(left=10, top=20, width=1000, height=800)
 
-        self.assertEqual(mon._hard_lock_above_click(window, (830, 756)), (830, 724))
+        self.assertEqual(mon._hard_lock_above_click(window, (830, 756)), (830, 692))
 
     def test_submit_uses_autodetected_target_when_available(self) -> None:
         cfg = tool.Config(
@@ -470,7 +470,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertIsNone(mon._probe_click_for_chat_input(window))
 
-        self.assertEqual(clicks, [(920, 936)])
+        self.assertEqual(clicks, [(920, 872)])
 
     def test_focus_verified_accepts_focused_edit_fallback(self) -> None:
         cfg = tool.Config(prompt="x")

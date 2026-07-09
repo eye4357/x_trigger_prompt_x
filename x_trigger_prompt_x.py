@@ -94,7 +94,7 @@ class Config:
     input_click_y_ratio: float | None = None
     default_safe_click_x_ratio: float = 0.82
     default_safe_click_y_ratio: float = 0.92
-    hard_lock_vertical_offset_ratio: float = 0.04
+    hard_lock_vertical_offset_ratio: float = 0.08
     allow_force_submit_in_hard_lock_zone: bool = False
     submit_enter_delay_seconds: float = 0.15
     dry_run: bool = False
@@ -508,8 +508,9 @@ class PromptMonitor:
 
         # Single conservative probe near the expected composer location.
         # This mimics the manual click users perform without roaming the cursor.
-        abs_x = left + int(round(width * self.config.default_safe_click_x_ratio))
-        abs_y = top + int(round(height * self.config.default_safe_click_y_ratio))
+        anchor_x = left + int(round(width * self.config.default_safe_click_x_ratio))
+        anchor_y = top + int(round(height * self.config.default_safe_click_y_ratio))
+        abs_x, abs_y = self._hard_lock_above_click(window, (anchor_x, anchor_y))
 
         with suppress(Exception):
             pyautogui.click(abs_x, abs_y)
@@ -612,8 +613,14 @@ class PromptMonitor:
         if Desktop is None:
             return False
 
+        focus_xy = (
+            self._hard_lock_above_click(window, click_xy)
+            if self._is_hard_lock_chat_zone(window, click_xy)
+            else click_xy
+        )
+
         try:
-            pyautogui.click(click_xy[0], click_xy[1])
+            pyautogui.click(focus_xy[0], focus_xy[1])
         except Exception as exc:
             if self._is_pyautogui_failsafe_exception(exc):
                 self._log("PyAutoGUI fail-safe triggered before focus click; submit skipped.")
@@ -621,16 +628,15 @@ class PromptMonitor:
             raise
         time.sleep(0.1)
         with suppress(Exception):
-            pyautogui.click(click_xy[0], click_xy[1])
+            pyautogui.click(focus_xy[0], focus_xy[1])
             time.sleep(0.05)
 
-        if self._uia_point_is_chat_input(window, click_xy):
+        if self._uia_point_is_chat_input(window, focus_xy):
             return True
 
-        # Hard lock fallback: textbox is often just above the bottom-right
-        # agent/action strip. Try a nearby upward offset and verify again.
-        hard_lock_xy = self._hard_lock_above_click(window, click_xy)
-        if hard_lock_xy != click_xy:
+        # For non-anchor call sites, still try the nearby upward textbox target.
+        hard_lock_xy = self._hard_lock_above_click(window, focus_xy)
+        if hard_lock_xy != focus_xy:
             with suppress(Exception):
                 pyautogui.click(hard_lock_xy[0], hard_lock_xy[1])
                 time.sleep(0.08)
