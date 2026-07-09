@@ -418,7 +418,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertIsNone(mon._probe_click_for_chat_input(window))
 
-        self.assertEqual(clicks, [(600, 944)])
+        self.assertEqual(clicks, [(920, 936)])
 
     def test_focus_verified_accepts_focused_edit_fallback(self) -> None:
         cfg = tool.Config(prompt="x")
@@ -573,7 +573,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._submit_prompt(window))
 
-        focus_mock.assert_called_once_with(window, (510, 764))
+        focus_mock.assert_called_once_with(window, (830, 756))
 
     def test_focused_chat_input_accepts_lower_pane_sparse_markers_geometry(self) -> None:
         cfg = tool.Config(prompt="x")

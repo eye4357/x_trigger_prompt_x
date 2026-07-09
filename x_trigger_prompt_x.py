@@ -92,8 +92,8 @@ class Config:
     input_click_y: int | None = None
     input_click_x_ratio: float | None = None
     input_click_y_ratio: float | None = None
-    default_safe_click_x_ratio: float = 0.50
-    default_safe_click_y_ratio: float = 0.93
+    default_safe_click_x_ratio: float = 0.82
+    default_safe_click_y_ratio: float = 0.92
     submit_enter_delay_seconds: float = 0.15
     dry_run: bool = False
 
@@ -478,8 +478,8 @@ class PromptMonitor:
 
         # Single conservative probe near the expected composer location.
         # This mimics the manual click users perform without roaming the cursor.
-        abs_x = left + int(round(width * 0.50))
-        abs_y = top + int(round(height * 0.93))
+        abs_x = left + int(round(width * self.config.default_safe_click_x_ratio))
+        abs_y = top + int(round(height * self.config.default_safe_click_y_ratio))
 
         with suppress(Exception):
             pyautogui.click(abs_x, abs_y)
