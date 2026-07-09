@@ -415,7 +415,10 @@ def parse_args(argv: list[str]) -> Config:
     parser.add_argument(
         "--prompt",
         required=True,
-        help="Prompt text to submit.",
+        help=(
+            "Prompt text to submit. In PowerShell, pass multiline content via a here-string "
+            "or quote the full value so it is treated as one argument."
+        ),
     )
     parser.add_argument(
         "--profile-file",
@@ -490,7 +493,8 @@ def parse_args(argv: list[str]) -> Config:
         default="HALT NOW",
         help=(
             "Stop monitoring early if this text appears in VS Code chat output. "
-            "Set a unique marker phrase your agent emits when done."
+            "Set a unique marker phrase your agent emits when done. Quote values with spaces "
+            "in PowerShell."
         ),
     )
     parser.add_argument(
