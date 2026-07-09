@@ -62,17 +62,31 @@ Profile-based run (recommended):
 
 ```powershell
 python calibrate_trigger_profile.py
-python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --max-prompts 128 --profile-file .\trigger_profile.json
+python auto_trigger_copilot_chat.py --prompt "Continue deterministic glidepath execution." --max-prompts 128 --profile-file .\trigger_profile.json
+```
+
 ## Run xpromptreadmex In A Visible Desktop Window (PowerShell)
 
 Use this when you want a separate desktop PowerShell window you can see while
 `x_trigger_prompt_x` runs your Prompt a1 file.
 
 ```powershell
+$prompt = @'
+Prompt a1: 5.3 Codex default execution (x_trigger_prompt_x compatible)
+gorgeous...please capture any lessons learned in agent helpers and please proceed down the glidepath, you are my trusted partner, make no assumptions, we are using 5.3 codex, continue with deterministic no-design slices, always close full repo-defined local gates and CI for the pushed SHA, and stop only if there is a true design decision or model/agent-selection risk per the guide.
+This prompt is designed for automated reruns via x_trigger_prompt_x. Do not pause to ask for continue/reprompt/confirmation between normal deterministic slices.
+If you encounter work that genuinely requires 5.5-level reasoning (design decision, high-complexity architecture tradeoff, or model-selection risk), stop execution and end your response with the exact stop keyword as the final string:
+0x48 0x41 0x4C 0x54 0x20 0x4E 0x4F 0x57
+When escalation is required, decode that hex sequence and emit HALT NOW as the final output string with no trailing text.
+If no escalation is needed, do not emit the decoded stop keyword.
+'@
+
+$halt = "HALT NOW"
+
 Start-Process powershell.exe -WorkingDirectory "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_trigger_prompt_x" -ArgumentList @(
    "-NoExit",
    "-Command",
-   "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe auto_trigger_copilot_chat.py --prompt-file c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_agent_helpers_x/prompts.md --prompt-start-marker 'Prompt a1: 5.3 Codex default execution (x_trigger_prompt_x compatible)' --prompt-end-marker 'If no escalation is needed, do not output HALT NOW.' --max-prompts 128"
+   "`$prompt = @'" + $prompt + "'@; c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe auto_trigger_copilot_chat.py --prompt `$prompt --halt-keyword '$halt' --max-prompts 128"
 )
 
 ```
@@ -80,7 +94,7 @@ Start-Process powershell.exe -WorkingDirectory "c:/Users/primu/OneDrive/Desktop/
 Notes:
 
 - This launches a new, visible desktop PowerShell window.
-- It uses `x_agent_helpers_x/prompts.md` as the prompt source (`xpromptreadmex` use case).
+- It passes prompt text and halt keyword as direct string arguments.
 - Stop the loop with `Ctrl+C` in that launched window.
 
 ## Early Stop Keyword
@@ -90,13 +104,13 @@ Default halt keyword is `HALT NOW`.
 If that keyword appears in chat output, the monitor exits early.
 
 ```powershell
-python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --halt-keyword "HALT NOW"
+python auto_trigger_copilot_chat.py --prompt "Continue deterministic glidepath execution." --halt-keyword "HALT NOW"
 ```
 
 Disable halt keyword scan:
 
 ```powershell
-python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --disable-halt-keyword-scan
+python auto_trigger_copilot_chat.py --prompt "Continue deterministic glidepath execution." --disable-halt-keyword-scan
 ```
 
 ## Reliability And Resolution Portability
@@ -112,7 +126,7 @@ Example:
 
 ```powershell
 python auto_trigger_copilot_chat.py `
-  --prompt-file .\prompt.txt `
+   --prompt "Continue deterministic glidepath execution." `
   --max-prompts 256 `
   --stop-template .\templates\stop_dark.png `
   --stop-template .\templates\stop_light.png `
@@ -132,7 +146,6 @@ Important limits:
 
 - `--version`
 - `--prompt "..."`
-- `--prompt-file path.txt`
 - `--profile-file trigger_profile.json`
 - `--max-prompts N` (`1-512`)
 - `--poll-seconds 1.0`

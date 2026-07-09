@@ -1,6 +1,5 @@
 import argparse
 import json
-import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,7 +14,7 @@ class ParseArgsTests(unittest.TestCase):
             tool.parse_args(["--version"])
         self.assertEqual(ctx.exception.code, 0)
 
-    def test_prompt_or_prompt_file_required(self) -> None:
+    def test_prompt_required(self) -> None:
         with self.assertRaises(SystemExit):
             tool.parse_args([])
 
@@ -25,68 +24,37 @@ class ParseArgsTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             tool.parse_args(["--prompt", "hi", "--max-prompts", "513"])
 
-    def test_prompt_file_is_loaded(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            prompt_path = Path(tmp_dir) / "prompt.txt"
-            prompt_path.write_text("hello world\n", encoding="utf-8")
-
-            cfg = tool.parse_args(["--prompt-file", str(prompt_path)])
-            self.assertEqual(cfg.prompt, "hello world")
-
-    def test_prompt_file_marker_extraction(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            prompt_path = Path(tmp_dir) / "prompts.md"
-            prompt_path.write_text(
-                "header\nPrompt a1\nline1\nline2\nEND A1\nfooter\n",
-                encoding="utf-8",
-            )
-
-            cfg = tool.parse_args(
-                [
-                    "--prompt-file",
-                    str(prompt_path),
-                    "--prompt-start-marker",
-                    "Prompt a1",
-                    "--prompt-end-marker",
-                    "END A1",
-                ]
-            )
-            self.assertEqual(cfg.prompt, "Prompt a1\nline1\nline2\nEND A1")
-
-    def test_prompt_markers_require_prompt_file(self) -> None:
-        with self.assertRaises(SystemExit):
-            tool.parse_args(["--prompt", "hello", "--prompt-start-marker", "Prompt a1"])
+    def test_prompt_is_trimmed(self) -> None:
+        cfg = tool.parse_args(["--prompt", " hello world \n"])
+        self.assertEqual(cfg.prompt, "hello world")
 
     def test_profile_supplies_ratio_and_template(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            root = Path(tmp_dir)
-            prompt_path = root / "prompt.txt"
-            prompt_path.write_text("hello", encoding="utf-8")
-            template = root / "stop.png"
-            template.write_bytes(b"not-a-real-image")
-            profile = root / "profile.json"
-            profile.write_text(
-                json.dumps(
-                    {
-                        "stop_template": "stop.png",
-                        "input_click_x_ratio": 0.5,
-                        "input_click_y_ratio": 0.75,
-                    }
-                ),
-                encoding="utf-8",
-            )
+        root = Path("C:/tmp")
+        template = root / "stop.png"
+        profile = root / "profile.json"
+        profile_data = {
+            "stop_template": "stop.png",
+            "input_click_x_ratio": 0.5,
+            "input_click_y_ratio": 0.75,
+        }
 
+        with (
+            patch.object(Path, "exists", autospec=True) as exists_mock,
+            patch.object(Path, "read_text", autospec=True, return_value=json.dumps(profile_data)),
+        ):
+            exists_mock.side_effect = lambda p: str(p).endswith("profile.json") or str(p).endswith("stop.png")
             cfg = tool.parse_args(
                 [
-                    "--prompt-file",
-                    str(prompt_path),
+                    "--prompt",
+                    "hello",
                     "--profile-file",
                     str(profile),
                 ]
             )
-            self.assertEqual(cfg.stop_templates, (template,))
-            self.assertEqual(cfg.input_click_x_ratio, 0.5)
-            self.assertEqual(cfg.input_click_y_ratio, 0.75)
+
+        self.assertEqual(cfg.stop_templates, (template,))
+        self.assertEqual(cfg.input_click_x_ratio, 0.5)
+        self.assertEqual(cfg.input_click_y_ratio, 0.75)
 
 
 class HelperFunctionTests(unittest.TestCase):
@@ -166,9 +134,8 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         mon = tool.PromptMonitor(cfg)
         mon._submitted = 1
 
-        with patch.object(tool, "Desktop", object()):
-            with patch.object(mon, "_uia_detect_halt_keyword", return_value=True):
-                self.assertTrue(mon._should_halt(SimpleNamespace()))
+        with patch.object(tool, "Desktop", object()), patch.object(mon, "_uia_detect_halt_keyword", return_value=True):
+            self.assertTrue(mon._should_halt(SimpleNamespace()))
 
 
 if __name__ == "__main__":

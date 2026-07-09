@@ -56,7 +56,6 @@ class Config:
     submit_cooldown_seconds: float = 1.5
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
-    prompt_file: Path | None = None
     stop_templates: tuple[Path, ...] = ()
     template_confidence: float = 0.9
     template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
@@ -357,35 +356,6 @@ def _resolve_profile_path(raw_path: str, profile_file: Path | None) -> Path:
     return candidate
 
 
-def _extract_prompt_segment(
-    prompt_text: str,
-    start_marker: str | None,
-    end_marker: str | None,
-    parser: argparse.ArgumentParser,
-) -> str:
-    if not start_marker and not end_marker:
-        return prompt_text.strip()
-
-    start_index = 0
-    if start_marker:
-        start_index = prompt_text.find(start_marker)
-        if start_index < 0:
-            parser.error("--prompt-start-marker was not found in --prompt-file content.")
-
-    end_index = len(prompt_text)
-    if end_marker:
-        search_from = start_index
-        end_pos = prompt_text.find(end_marker, search_from)
-        if end_pos < 0:
-            parser.error("--prompt-end-marker was not found in --prompt-file content.")
-        end_index = end_pos + len(end_marker)
-
-    segment = prompt_text[start_index:end_index].strip()
-    if not segment:
-        parser.error("Extracted prompt segment is empty after applying prompt markers.")
-    return segment
-
-
 def _ensure_runtime_dependencies() -> None:
     global pyautogui, gw, pyperclip, Desktop, cv2, np
 
@@ -444,29 +414,8 @@ def parse_args(argv: list[str]) -> Config:
     )
     parser.add_argument(
         "--prompt",
-        default="",
-        help="Prompt text to submit. If omitted, use --prompt-file.",
-    )
-    parser.add_argument(
-        "--prompt-file",
-        type=Path,
-        help="Path to a UTF-8 text file containing prompt text.",
-    )
-    parser.add_argument(
-        "--prompt-start-marker",
-        default="",
-        help=(
-            "Optional marker string for extracting a prompt subsection from --prompt-file. "
-            "Extraction starts at the first marker occurrence (inclusive)."
-        ),
-    )
-    parser.add_argument(
-        "--prompt-end-marker",
-        default="",
-        help=(
-            "Optional marker string for extracting a prompt subsection from --prompt-file. "
-            "Extraction ends at the first marker occurrence after start (inclusive)."
-        ),
+        required=True,
+        help="Prompt text to submit.",
     )
     parser.add_argument(
         "--profile-file",
@@ -592,24 +541,10 @@ def parse_args(argv: list[str]) -> Config:
     if args.template_confidence < 0.1 or args.template_confidence > 1.0:
         parser.error("--template-confidence must be between 0.1 and 1.0.")
 
-    prompt_text = args.prompt
-    prompt_file = args.prompt_file
-    prompt_start_marker = (args.prompt_start_marker or "").strip()
-    prompt_end_marker = (args.prompt_end_marker or "").strip()
+    prompt_text = str(args.prompt).strip()
 
-    if (prompt_start_marker or prompt_end_marker) and not prompt_file:
-        parser.error("--prompt-start-marker/--prompt-end-marker require --prompt-file.")
-
-    if prompt_file:
-        if not prompt_file.exists():
-            parser.error(f"Prompt file does not exist: {prompt_file}")
-        prompt_text = prompt_file.read_text(encoding="utf-8")
-        prompt_text = _extract_prompt_segment(prompt_text, prompt_start_marker, prompt_end_marker, parser)
-    else:
-        prompt_text = prompt_text.strip()
-
-    if not prompt_text.strip():
-        parser.error("Provide --prompt or --prompt-file with non-empty content.")
+    if not prompt_text:
+        parser.error("Provide --prompt with non-empty content.")
 
     stop_templates: list[Path] = []
     if args.stop_template:
@@ -690,7 +625,6 @@ def parse_args(argv: list[str]) -> Config:
         submit_enter_delay_seconds=args.submit_enter_delay_seconds,
         vs_title_regex=vs_title_regex,
         chat_focus_hotkey=chat_focus_hotkey,
-        prompt_file=prompt_file,
         stop_templates=tuple(stop_templates),
         template_confidence=template_confidence,
         template_scales=template_scales,
