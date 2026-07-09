@@ -70,6 +70,56 @@ class HelperFunctionTests(unittest.TestCase):
 
 
 class PromptMonitorBehaviorTests(unittest.TestCase):
+    def test_disallowed_terminal_markers_are_rejected(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        self.assertTrue(mon._is_disallowed_input_target("integrated terminal xterm"))
+        self.assertFalse(mon._is_disallowed_input_target("copilot chat input"))
+
+    def test_autodetect_requires_chat_markers(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 100
+            top = 600
+            right = 900
+            bottom = 660
+
+        class FakeCtrl:
+            element_info = SimpleNamespace(automation_id="terminalInput", class_name="xterm")
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return "Terminal"
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                if control_type == "Edit":
+                    return [FakeCtrl()]
+                return []
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1200, height=900)
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertIsNone(mon._autodetect_chat_input_click(window))
+
     def test_resolve_input_click_prefers_absolute(self) -> None:
         cfg = tool.Config(prompt="x", input_click_x=100, input_click_y=200)
         mon = tool.PromptMonitor(cfg)

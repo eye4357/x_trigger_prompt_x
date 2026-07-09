@@ -46,6 +46,20 @@ ACTIVE_NAME_PATTERNS = (
     re.compile(r"\binterrupt\b", re.IGNORECASE),
     re.compile(r"\bcancel\b", re.IGNORECASE),
 )
+CHAT_INPUT_MARKER_TOKENS = ("chat", "copilot", "prompt", "message", "ask", "composer", "assistant")
+DISALLOWED_INPUT_MARKER_TOKENS = (
+    "terminal",
+    "xterm",
+    "pty",
+    "powershell",
+    "pwsh",
+    "cmd",
+    "bash",
+    "zsh",
+    "console",
+    "debug console",
+    "output",
+)
 
 
 @dataclass
@@ -390,22 +404,20 @@ class PromptMonitor:
                 if rect.bottom < lower_guard_y:
                     continue
 
-                name = (ctrl.window_text() or "").strip().lower()
-                element_info = getattr(ctrl, "element_info", None)
-                automation_id = ""
-                class_name = ""
-                if element_info is not None:
-                    automation_id = str(getattr(element_info, "automation_id", "") or "").lower()
-                    class_name = str(getattr(element_info, "class_name", "") or "").lower()
+                marker_text = self._build_control_marker_text(ctrl)
+                if self._is_disallowed_input_target(marker_text):
+                    continue
 
-                marker_text = f"{name} {automation_id} {class_name}"
-                has_chat_marker = any(token in marker_text for token in ("chat", "copilot", "prompt", "message"))
+                has_chat_marker = self._has_chat_input_marker(marker_text)
+                # Auto-detection is strict: do not infer from generic lower-pane edits.
+                if not has_chat_marker:
+                    continue
                 marker_score = 1 if has_chat_marker else 0
 
                 center_x = max(left, min(left + width - 1, int((rect.left + rect.right) / 2)))
                 center_y = max(top, min(top + height - 1, int((rect.top + rect.bottom) / 2)))
 
-                # Prefer explicit chat markers first, then lower controls.
+                # Prefer explicit chat markers and lower controls nearest the input area.
                 scored.append((marker_score, center_y, center_x, center_y))
             except Exception:
                 continue
@@ -442,7 +454,7 @@ class PromptMonitor:
         if Desktop is None:
             return False
 
-        left, top, width, height = self._window_region(window)
+        _left, top, width, height = self._window_region(window)
         abs_x, abs_y = click_xy
         lower_guard_y = top + int(height * 0.55)
 
@@ -457,25 +469,38 @@ class PromptMonitor:
                 if not (rect.left <= abs_x <= rect.right and rect.top <= abs_y <= rect.bottom):
                     continue
 
-                name = (ctrl.window_text() or "").strip().lower()
-                element_info = getattr(ctrl, "element_info", None)
-                automation_id = ""
-                class_name = ""
-                if element_info is not None:
-                    automation_id = str(getattr(element_info, "automation_id", "") or "").lower()
-                    class_name = str(getattr(element_info, "class_name", "") or "").lower()
+                marker_text = self._build_control_marker_text(ctrl)
+                if self._is_disallowed_input_target(marker_text):
+                    continue
 
-                marker_text = f"{name} {automation_id} {class_name}"
-                if any(token in marker_text for token in ("chat", "copilot", "prompt", "message")):
+                if self._has_chat_input_marker(marker_text):
                     return True
 
-                # Fallback heuristic: chat input is expected in lower pane of the VS Code window.
-                if abs_y >= lower_guard_y:
+                # Conservative fallback for custom UIA trees.
+                rect_height = max(0, int(rect.bottom - rect.top))
+                rect_width = max(0, int(rect.right - rect.left))
+                if abs_y >= lower_guard_y and rect_height <= 160 and rect_width >= int(width * 0.3):
                     return True
             except Exception:
                 continue
 
         return False
+
+    def _build_control_marker_text(self, ctrl: Any) -> str:
+        name = (ctrl.window_text() or "").strip().lower()
+        element_info = getattr(ctrl, "element_info", None)
+        automation_id = ""
+        class_name = ""
+        if element_info is not None:
+            automation_id = str(getattr(element_info, "automation_id", "") or "").lower()
+            class_name = str(getattr(element_info, "class_name", "") or "").lower()
+        return f"{name} {automation_id} {class_name}"
+
+    def _has_chat_input_marker(self, marker_text: str) -> bool:
+        return any(token in marker_text for token in CHAT_INPUT_MARKER_TOKENS)
+
+    def _is_disallowed_input_target(self, marker_text: str) -> bool:
+        return any(token in marker_text for token in DISALLOWED_INPUT_MARKER_TOKENS)
 
     def _resolve_input_click(self, window: Any) -> tuple[int, int] | None:
         if self.config.input_click_x is not None and self.config.input_click_y is not None:
