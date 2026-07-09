@@ -504,12 +504,9 @@ class PromptMonitor:
         return x, y
 
     def _probe_click_for_chat_input(self, window: Any) -> tuple[int, int] | None:
-        left, top, width, height = self._window_region(window)
-
         # Single conservative probe near the expected composer location.
         # This mimics the manual click users perform without roaming the cursor.
-        anchor_x = left + int(round(width * self.config.default_safe_click_x_ratio))
-        anchor_y = top + int(round(height * self.config.default_safe_click_y_ratio))
+        anchor_x, anchor_y = self._default_safe_input_click(window)
         abs_x, abs_y = self._hard_lock_above_click(window, (anchor_x, anchor_y))
 
         with suppress(Exception):
@@ -523,8 +520,18 @@ class PromptMonitor:
 
     def _default_safe_input_click(self, window: Any) -> tuple[int, int]:
         left, top, width, height = self._window_region(window)
-        abs_x = left + int(round(width * self.config.default_safe_click_x_ratio))
-        abs_y = top + int(round(height * self.config.default_safe_click_y_ratio))
+        x_ratio = self.config.default_safe_click_x_ratio
+        y_ratio = self.config.default_safe_click_y_ratio
+
+        # Narrow/squished layouts shift the composer left/up; bias the default
+        # safe anchor so verification gets a better first click in compressed UIs.
+        if width < 900:
+            x_ratio = max(0.68, x_ratio - 0.14)
+        if height < 650:
+            y_ratio = max(0.86, y_ratio - 0.06)
+
+        abs_x = left + int(round(width * x_ratio))
+        abs_y = top + int(round(height * y_ratio))
         return abs_x, abs_y
 
     def _uia_focused_edit_looks_like_chat_input(self, window: Any) -> bool:
@@ -665,7 +672,15 @@ class PromptMonitor:
 
         rel_x = (int(click_xy[0]) - left) / float(width)
         rel_y = (int(click_xy[1]) - top) / float(height)
-        return rel_x >= 0.68 and 0.72 <= rel_y <= 0.98
+
+        min_x = 0.68
+        min_y = 0.72
+        if width < 900:
+            min_x = 0.52
+        if height < 650:
+            min_y = 0.60
+
+        return rel_x >= min_x and min_y <= rel_y <= 0.98
 
     def _focused_target_is_safe_chat_input(self, window: Any) -> tuple[bool, str]:
         if Desktop is None:

@@ -998,6 +998,21 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertTrue(mon._is_hard_lock_chat_zone(window, (820, 840)))
         self.assertFalse(mon._is_hard_lock_chat_zone(window, (500, 840)))
 
+    def test_default_safe_click_adapts_for_squished_window(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=100, top=200, width=800, height=600)
+
+        self.assertEqual(mon._default_safe_input_click(window), (644, 716))
+
+    def test_hard_lock_chat_zone_relaxes_for_squished_window(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=100, top=200, width=800, height=600)
+
+        self.assertTrue(mon._is_hard_lock_chat_zone(window, (564, 584)))
+        self.assertFalse(mon._is_hard_lock_chat_zone(window, (420, 584)))
+
     def test_focus_verified_blocks_hard_lock_zone_without_uia_proof(self) -> None:
         cfg = tool.Config(prompt="x", allow_force_submit_in_hard_lock_zone=True)
         mon = tool.PromptMonitor(cfg)
