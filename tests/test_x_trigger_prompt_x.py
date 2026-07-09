@@ -126,15 +126,37 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         cfg = tool.Config(prompt="x", halt_keyword="HALT NOW", disable_halt_keyword_scan=False)
         mon = tool.PromptMonitor(cfg)
 
-        with patch.object(mon, "_uia_detect_halt_keyword", return_value=True):
+        with patch.object(mon, "_uia_count_halt_keyword_occurrences", return_value=5):
             self.assertFalse(mon._should_halt(SimpleNamespace()))
 
-    def test_should_halt_runs_after_first_submit(self) -> None:
+    def test_should_halt_establishes_baseline_after_first_submit(self) -> None:
         cfg = tool.Config(prompt="x", halt_keyword="HALT NOW", disable_halt_keyword_scan=False)
         mon = tool.PromptMonitor(cfg)
         mon._submitted = 1
 
-        with patch.object(tool, "Desktop", object()), patch.object(mon, "_uia_detect_halt_keyword", return_value=True):
+        with (
+            patch.object(tool, "Desktop", object()),
+            patch.object(mon, "_uia_count_halt_keyword_occurrences", return_value=3),
+        ):
+            self.assertFalse(mon._should_halt(SimpleNamespace()))
+            self.assertEqual(mon._halt_keyword_baseline, 3)
+
+    def test_should_halt_triggers_only_on_new_occurrence(self) -> None:
+        cfg = tool.Config(prompt="x", halt_keyword="HALT NOW", disable_halt_keyword_scan=False)
+        mon = tool.PromptMonitor(cfg)
+        mon._submitted = 1
+        mon._halt_keyword_baseline = 3
+
+        with (
+            patch.object(tool, "Desktop", object()),
+            patch.object(mon, "_uia_count_halt_keyword_occurrences", return_value=3),
+        ):
+            self.assertFalse(mon._should_halt(SimpleNamespace()))
+
+        with (
+            patch.object(tool, "Desktop", object()),
+            patch.object(mon, "_uia_count_halt_keyword_occurrences", return_value=4),
+        ):
             self.assertTrue(mon._should_halt(SimpleNamespace()))
 
 

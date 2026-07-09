@@ -75,6 +75,7 @@ class PromptMonitor:
         self.config = config
         self._stop_requested = False
         self._submitted = 0
+        self._halt_keyword_baseline: int | None = None
 
     def request_stop(self, *_args: object) -> None:
         self._stop_requested = True
@@ -123,9 +124,16 @@ class PromptMonitor:
         if Desktop is None:
             return False
         try:
-            return self._uia_detect_halt_keyword(window)
+            occurrences = self._uia_count_halt_keyword_occurrences(window)
         except Exception:
             return False
+
+        # If no baseline is available, establish one and continue.
+        if self._halt_keyword_baseline is None:
+            self._halt_keyword_baseline = occurrences
+            return False
+
+        return occurrences > self._halt_keyword_baseline
 
     def _find_vscode_window(self) -> Any | None:
         pattern = re.compile(self.config.vs_title_regex, re.IGNORECASE)
@@ -195,22 +203,26 @@ class PromptMonitor:
                 return True
         return False
 
-    def _uia_detect_halt_keyword(self, window: Any) -> bool:
+    def _uia_count_halt_keyword_occurrences(self, window: Any) -> int:
         app = Desktop(backend="uia")
         target = app.window(title_re=self.config.vs_title_regex)
         if not target.exists(timeout=0.5):
-            return False
+            return 0
 
         keyword = self.config.halt_keyword.strip().lower()
+        if not keyword:
+            return 0
+
+        occurrences = 0
         controls = target.descendants()
         for ctrl in controls:
             try:
                 text = (ctrl.window_text() or "").strip()
             except Exception:
                 continue
-            if text and keyword in text.lower():
-                return True
-        return False
+            if text:
+                occurrences += text.lower().count(keyword)
+        return occurrences
 
     def _template_detect_stop_button(self, window: Any) -> bool:
         if not self.config.stop_templates:
@@ -267,6 +279,13 @@ class PromptMonitor:
         return False
 
     def _submit_prompt(self, window: Any) -> bool:
+        # Snapshot current halt keyword occurrence count before submitting.
+        # Early-stop should only trigger if new occurrences appear afterward.
+        self._halt_keyword_baseline = None
+        if not self.config.disable_halt_keyword_scan and self.config.halt_keyword.strip() and Desktop is not None:
+            with suppress(Exception):
+                self._halt_keyword_baseline = self._uia_count_halt_keyword_occurrences(window)
+
         with suppress(Exception):
             window.activate()
 
