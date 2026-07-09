@@ -521,8 +521,7 @@ class PromptMonitor:
             pyautogui.click(click_xy[0], click_xy[1])
             time.sleep(0.05)
 
-        if not self._is_active_window_match(window):
-            return False
+        _active_match = self._is_active_window_match(window)
 
         if self._uia_point_is_chat_input(window, click_xy):
             return True
@@ -536,7 +535,18 @@ class PromptMonitor:
             active = gw.getActiveWindow()
             if active is None:
                 return False
-            return int(active.left) == int(window.left) and int(active.top) == int(window.top)
+
+            # Prefer title match when window managers shift coordinates slightly.
+            active_title = str(getattr(active, "title", "") or "")
+            if active_title and re.match(self.config.vs_title_regex, active_title, re.IGNORECASE):
+                return True
+
+            left_delta = abs(int(getattr(active, "left", 0)) - int(getattr(window, "left", 0)))
+            top_delta = abs(int(getattr(active, "top", 0)) - int(getattr(window, "top", 0)))
+            width_delta = abs(int(getattr(active, "width", 0)) - int(getattr(window, "width", 0)))
+            height_delta = abs(int(getattr(active, "height", 0)) - int(getattr(window, "height", 0)))
+
+            return left_delta <= 24 and top_delta <= 24 and width_delta <= 64 and height_delta <= 64
         except Exception:
             return False
 

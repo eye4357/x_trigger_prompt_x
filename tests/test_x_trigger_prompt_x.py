@@ -616,6 +616,39 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         with patch.object(tool, "Desktop", FakeDesktop):
             self.assertTrue(mon._uia_focused_edit_looks_like_chat_input(window))
 
+    def test_active_window_match_accepts_title_regex(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        window = SimpleNamespace(left=0, top=0, width=1000, height=800)
+        active = SimpleNamespace(left=300, top=200, width=500, height=400, title="Visual Studio Code")
+        fake_gw = SimpleNamespace(getActiveWindow=lambda: active)
+
+        with patch.object(tool, "gw", fake_gw):
+            self.assertTrue(mon._is_active_window_match(window))
+
+    def test_focus_verified_succeeds_when_point_uia_matches_even_if_active_mismatch(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(_x: int, _y: int) -> None:
+                return None
+
+        window = SimpleNamespace(left=0, top=0, width=100, height=100)
+        active = SimpleNamespace(left=999, top=999, width=100, height=100, title="Some Other App")
+        fake_gw = SimpleNamespace(getActiveWindow=lambda: active)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "gw", fake_gw),
+            patch.object(tool, "Desktop", object()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_uia_point_is_chat_input", return_value=True),
+        ):
+            self.assertTrue(mon._focus_verified_chat_input(window, (10, 10)))
+
 
 if __name__ == "__main__":
     unittest.main()
