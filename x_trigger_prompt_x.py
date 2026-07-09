@@ -60,6 +60,12 @@ DISALLOWED_INPUT_MARKER_TOKENS = (
     "debug console",
     "output",
 )
+ALLOWED_CHAT_INPUT_CONTROL_TYPES = (
+    "Edit",
+    "Document",
+    "Pane",
+    "Custom",
+)
 
 
 @dataclass
@@ -461,13 +467,18 @@ class PromptMonitor:
             return False
 
         try:
-            focused = target.descendants(control_type="Edit")
+            focused = target.descendants()
         except Exception:
             return False
 
         for ctrl in focused:
             try:
                 if not bool(getattr(ctrl, "has_keyboard_focus", lambda: False)()):
+                    continue
+
+                element_info = getattr(ctrl, "element_info", None)
+                control_type = str(getattr(element_info, "control_type", "") or "")
+                if control_type and control_type not in ALLOWED_CHAT_INPUT_CONTROL_TYPES:
                     continue
 
                 marker_text = self._build_control_marker_text(ctrl)
@@ -527,10 +538,15 @@ class PromptMonitor:
         if not target.exists(timeout=0.5):
             return False
 
-        for ctrl in target.descendants(control_type="Edit"):
+        for ctrl in target.descendants():
             try:
                 rect = ctrl.rectangle()
                 if not (rect.left <= abs_x <= rect.right and rect.top <= abs_y <= rect.bottom):
+                    continue
+
+                element_info = getattr(ctrl, "element_info", None)
+                control_type = str(getattr(element_info, "control_type", "") or "")
+                if control_type and control_type not in ALLOWED_CHAT_INPUT_CONTROL_TYPES:
                     continue
 
                 marker_text = self._build_control_marker_text(ctrl)

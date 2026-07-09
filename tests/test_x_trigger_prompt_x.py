@@ -433,6 +433,102 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._focus_verified_chat_input(window, (10, 10)))
 
+    def test_focused_chat_input_accepts_document_control_type(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 100
+            top = 700
+            right = 900
+            bottom = 760
+
+        class FakeCtrl:
+            element_info = SimpleNamespace(
+                automation_id="",
+                class_name="",
+                control_type="Document",
+            )
+
+            @staticmethod
+            def has_keyboard_focus() -> bool:
+                return True
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return ""
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                return [FakeCtrl()]
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1200, height=900)
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertTrue(mon._uia_focused_edit_looks_like_chat_input(window))
+
+    def test_point_chat_input_accepts_document_control_type(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 100
+            top = 700
+            right = 900
+            bottom = 760
+
+        class FakeCtrl:
+            element_info = SimpleNamespace(
+                automation_id="",
+                class_name="",
+                control_type="Document",
+            )
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return ""
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                return [FakeCtrl()]
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1200, height=900)
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertTrue(mon._uia_point_is_chat_input(window, (500, 730)))
+
 
 if __name__ == "__main__":
     unittest.main()
