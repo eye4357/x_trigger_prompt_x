@@ -154,6 +154,22 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         self.assertIs(result, w1)
 
+    def test_should_halt_is_disabled_before_first_submit(self) -> None:
+        cfg = tool.Config(prompt="x", halt_keyword="HALT NOW", disable_halt_keyword_scan=False)
+        mon = tool.PromptMonitor(cfg)
+
+        with patch.object(mon, "_uia_detect_halt_keyword", return_value=True):
+            self.assertFalse(mon._should_halt(SimpleNamespace()))
+
+    def test_should_halt_runs_after_first_submit(self) -> None:
+        cfg = tool.Config(prompt="x", halt_keyword="HALT NOW", disable_halt_keyword_scan=False)
+        mon = tool.PromptMonitor(cfg)
+        mon._submitted = 1
+
+        with patch.object(tool, "Desktop", object()):
+            with patch.object(mon, "_uia_detect_halt_keyword", return_value=True):
+                self.assertTrue(mon._should_halt(SimpleNamespace()))
+
 
 if __name__ == "__main__":
     unittest.main()

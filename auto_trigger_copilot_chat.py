@@ -113,6 +113,10 @@ class PromptMonitor:
         return 0
 
     def _should_halt(self, window: Any) -> bool:
+        # Ignore halt-keyword scan until at least one prompt has been submitted.
+        # This avoids immediate exits when the keyword is visible in prompt sources.
+        if self._submitted == 0:
+            return False
         if self.config.disable_halt_keyword_scan:
             return False
         if not self.config.halt_keyword.strip():
