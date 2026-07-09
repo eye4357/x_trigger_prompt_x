@@ -33,6 +33,30 @@ class ParseArgsTests(unittest.TestCase):
             cfg = tool.parse_args(["--prompt-file", str(prompt_path)])
             self.assertEqual(cfg.prompt, "hello world")
 
+    def test_prompt_file_marker_extraction(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            prompt_path = Path(tmp_dir) / "prompts.md"
+            prompt_path.write_text(
+                "header\nPrompt a1\nline1\nline2\nEND A1\nfooter\n",
+                encoding="utf-8",
+            )
+
+            cfg = tool.parse_args(
+                [
+                    "--prompt-file",
+                    str(prompt_path),
+                    "--prompt-start-marker",
+                    "Prompt a1",
+                    "--prompt-end-marker",
+                    "END A1",
+                ]
+            )
+            self.assertEqual(cfg.prompt, "Prompt a1\nline1\nline2\nEND A1")
+
+    def test_prompt_markers_require_prompt_file(self) -> None:
+        with self.assertRaises(SystemExit):
+            tool.parse_args(["--prompt", "hello", "--prompt-start-marker", "Prompt a1"])
+
     def test_profile_supplies_ratio_and_template(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             root = Path(tmp_dir)

@@ -63,8 +63,6 @@ Profile-based run (recommended):
 ```powershell
 python calibrate_trigger_profile.py
 python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --max-prompts 128 --profile-file .\trigger_profile.json
-```
-
 ## Run xpromptreadmex In A Visible Desktop Window (PowerShell)
 
 Use this when you want a separate desktop PowerShell window you can see while
@@ -74,8 +72,9 @@ Use this when you want a separate desktop PowerShell window you can see while
 Start-Process powershell.exe -WorkingDirectory "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_trigger_prompt_x" -ArgumentList @(
    "-NoExit",
    "-Command",
-   "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe auto_trigger_copilot_chat.py --prompt-file c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_agent_helpers_x/prompts.md --max-prompts 128"
+   "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe auto_trigger_copilot_chat.py --prompt-file c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_agent_helpers_x/prompts.md --prompt-start-marker 'Prompt a1: 5.3 Codex default execution (x_trigger_prompt_x compatible)' --prompt-end-marker 'If no escalation is needed, do not output HALT NOW.' --max-prompts 128"
 )
+
 ```
 
 Notes:
