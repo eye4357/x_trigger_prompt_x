@@ -65,6 +65,25 @@ python calibrate_trigger_profile.py
 python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --max-prompts 128 --profile-file .\trigger_profile.json
 ```
 
+## Run xpromptreadmex In A Visible Desktop Window (PowerShell)
+
+Use this when you want a separate desktop PowerShell window you can see while
+`x_trigger_prompt_x` runs your Prompt a1 file.
+
+```powershell
+Start-Process powershell.exe -WorkingDirectory "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_trigger_prompt_x" -ArgumentList @(
+   "-NoExit",
+   "-Command",
+   "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe auto_trigger_copilot_chat.py --prompt-file c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_agent_helpers_x/prompts.md --max-prompts 128"
+)
+```
+
+Notes:
+
+- This launches a new, visible desktop PowerShell window.
+- It uses `x_agent_helpers_x/prompts.md` as the prompt source (`xpromptreadmex` use case).
+- Stop the loop with `Ctrl+C` in that launched window.
+
 ## Early Stop Keyword
 
 Default halt keyword is `HALT NOW`.
