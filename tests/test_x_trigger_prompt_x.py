@@ -300,8 +300,8 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
     def test_submit_uses_verified_click_target_when_configured(self) -> None:
         cfg = tool.Config(
             prompt="x",
-            input_click_x=100,
-            input_click_y=200,
+            input_click_x=830,
+            input_click_y=756,
             post_submit_activity_wait_seconds=0.0,
         )
         mon = tool.PromptMonitor(cfg)
@@ -320,7 +320,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             def copy(_text: str) -> None:
                 return None
 
-        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+        window = SimpleNamespace(activate=lambda: None, left=10, top=20, width=1000, height=800)
 
         with (
             patch.object(tool, "pyautogui", FakeAutoGui()),
@@ -328,14 +328,15 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
             patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", return_value=True),
         ):
             self.assertTrue(mon._submit_prompt(window))
 
     def test_submit_clears_composer_before_paste(self) -> None:
         cfg = tool.Config(
             prompt="x",
-            input_click_x=100,
-            input_click_y=200,
+            input_click_x=830,
+            input_click_y=756,
             post_submit_activity_wait_seconds=0.0,
         )
         mon = tool.PromptMonitor(cfg)
@@ -357,7 +358,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             def copy(_text: str) -> None:
                 return None
 
-        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+        window = SimpleNamespace(activate=lambda: None, left=10, top=20, width=1000, height=800)
 
         with (
             patch.object(tool, "pyautogui", FakeAutoGui()),
@@ -365,6 +366,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
             patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", return_value=True),
         ):
             self.assertTrue(mon._submit_prompt(window))
 
@@ -400,15 +402,16 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             def copy(_text: str) -> None:
                 return None
 
-        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=1000, height=800)
 
         with (
             patch.object(tool, "pyautogui", FakeAutoGui()),
             patch.object(tool, "pyperclip", FakeClip()),
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
-            patch.object(mon, "_autodetect_chat_input_click", return_value=(100, 200)),
+            patch.object(mon, "_autodetect_chat_input_click", return_value=(820, 736)),
             patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", return_value=True),
         ):
             self.assertTrue(mon._submit_prompt(window))
 
@@ -433,7 +436,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             def copy(_text: str) -> None:
                 return None
 
-        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=1000, height=800)
 
         with (
             patch.object(tool, "pyautogui", FakeAutoGui()),
@@ -441,8 +444,9 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
             patch.object(mon, "_autodetect_chat_input_click", return_value=None),
-            patch.object(mon, "_probe_click_for_chat_input", return_value=(100, 200)),
+            patch.object(mon, "_probe_click_for_chat_input", return_value=(820, 736)),
             patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", return_value=True),
         ):
             self.assertTrue(mon._submit_prompt(window))
 
@@ -618,6 +622,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(mon, "_autodetect_chat_input_click", return_value=None),
             patch.object(mon, "_probe_click_for_chat_input", return_value=None),
             patch.object(mon, "_focus_verified_chat_input", return_value=True) as focus_mock,
+            patch.object(mon, "_pre_paste_guard", return_value=True),
         ):
             self.assertTrue(mon._submit_prompt(window))
 
@@ -783,6 +788,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(mon, "_is_chat_active", return_value=False),
             patch.object(mon, "_focus_verified_chat_input", return_value=False),
             patch.object(mon, "_try_verified_hotkey_focus", return_value=True) as fallback_mock,
+            patch.object(mon, "_pre_paste_guard", return_value=True),
         ):
             self.assertTrue(mon._submit_prompt(window))
 
@@ -821,6 +827,147 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertFalse(mon._submit_prompt(window))
 
+    def test_focused_terminal_ancestor_blocks_pre_paste_guard(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 700
+            top = 700
+            right = 980
+            bottom = 760
+
+        class FakeParent:
+            element_info = SimpleNamespace(automation_id="terminal", class_name="xterm", control_type="Pane")
+
+            @staticmethod
+            def window_text() -> str:
+                return "Integrated Terminal"
+
+            @staticmethod
+            def parent() -> object | None:
+                return None
+
+        class FakeCtrl:
+            element_info = SimpleNamespace(automation_id="chatInput", class_name="editor", control_type="Edit")
+
+            @staticmethod
+            def has_keyboard_focus() -> bool:
+                return True
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return "Ask Copilot"
+
+            @staticmethod
+            def parent() -> FakeParent:
+                return FakeParent()
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                return [FakeCtrl()]
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1000, height=800)
+        with patch.object(tool, "Desktop", FakeDesktop):
+            verdict, reason = mon._focused_target_is_safe_chat_input(window)
+
+        self.assertFalse(verdict)
+        self.assertIn("terminal_ancestor_or_focus", reason)
+
+    def test_submit_blocks_when_focus_changes_after_clear(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            input_click_x=830,
+            input_click_y=756,
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        hotkey_calls: list[tuple[str, ...]] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*keys: str) -> None:
+                hotkey_calls.append(tuple(keys))
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                raise AssertionError("paste should not occur after focus jump")
+
+        window = SimpleNamespace(activate=lambda: None, left=10, top=20, width=1000, height=800)
+        guard_results = [True, False]
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", side_effect=guard_results),
+        ):
+            self.assertFalse(mon._submit_prompt(window))
+
+        self.assertIn(("ctrl", "a"), hotkey_calls)
+        self.assertNotIn(("ctrl", "v"), hotkey_calls)
+
+    def test_all_fallbacks_exhausted_skip_without_paste_side_effects(self) -> None:
+        cfg = tool.Config(prompt="x", post_submit_activity_wait_seconds=0.0)
+        mon = tool.PromptMonitor(cfg)
+
+        hotkey_calls: list[tuple[str, ...]] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*keys: str) -> None:
+                hotkey_calls.append(tuple(keys))
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                raise AssertionError("paste should not occur")
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_autodetect_chat_input_click", return_value=None),
+            patch.object(mon, "_probe_click_for_chat_input", return_value=None),
+            patch.object(mon, "_focus_verified_chat_input", return_value=False),
+            patch.object(mon, "_try_verified_hotkey_focus", return_value=False),
+        ):
+            self.assertFalse(mon._submit_prompt(window))
+
+        self.assertNotIn(("ctrl", "v"), hotkey_calls)
+
     def test_hard_lock_chat_zone_helper(self) -> None:
         cfg = tool.Config(prompt="x")
         mon = tool.PromptMonitor(cfg)
@@ -829,7 +976,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertTrue(mon._is_hard_lock_chat_zone(window, (820, 840)))
         self.assertFalse(mon._is_hard_lock_chat_zone(window, (500, 840)))
 
-    def test_focus_verified_accepts_hard_lock_zone_force_submit(self) -> None:
+    def test_focus_verified_blocks_hard_lock_zone_without_uia_proof(self) -> None:
         cfg = tool.Config(prompt="x", allow_force_submit_in_hard_lock_zone=True)
         mon = tool.PromptMonitor(cfg)
 
@@ -847,8 +994,10 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(mon, "_uia_point_is_chat_input", return_value=False),
             patch.object(mon, "_hard_lock_above_click", return_value=(820, 736)),
             patch.object(mon, "_is_hard_lock_chat_zone", return_value=True),
+            patch.object(mon, "_uia_focused_edit_looks_like_chat_input", return_value=False),
+            patch.object(mon, "_uia_focused_control_looks_like_safe_lower_input", return_value=False),
         ):
-            self.assertTrue(mon._focus_verified_chat_input(window, (820, 768)))
+            self.assertFalse(mon._focus_verified_chat_input(window, (820, 768)))
 
 
 if __name__ == "__main__":

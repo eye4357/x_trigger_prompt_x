@@ -95,7 +95,7 @@ class Config:
     default_safe_click_x_ratio: float = 0.82
     default_safe_click_y_ratio: float = 0.92
     hard_lock_vertical_offset_ratio: float = 0.04
-    allow_force_submit_in_hard_lock_zone: bool = True
+    allow_force_submit_in_hard_lock_zone: bool = False
     submit_enter_delay_seconds: float = 0.15
     dry_run: bool = False
 
@@ -372,9 +372,13 @@ class PromptMonitor:
             )
             return False
 
+        if click_xy is not None and not self._is_hard_lock_chat_zone(window, click_xy):
+            self._log_submit_decision("target_rejected", click_xy, "outside_hard_lock_chat_zone")
+            return False
+
         if click_xy is not None and not self._focus_verified_chat_input(window, click_xy):
             if not self._try_verified_hotkey_focus(window):
-                self._log("Refusing submit: unable to verify chat input focus target.")
+                self._log_submit_decision("target_rejected", click_xy, "unable_to_verify_chat_input_focus")
                 return False
         elif self.config.allow_unsafe_hotkey_focus:
             # Unsafe escape hatch for legacy environments.
@@ -391,11 +395,17 @@ class PromptMonitor:
             self._last_submit_saw_activity = True
             return True
 
+        if not self.config.allow_unsafe_hotkey_focus and not self._pre_paste_guard(window, click_xy, "before_clear"):
+            return False
+
         # Belt-and-suspenders: clear any stale draft text before pasting.
         pyautogui.hotkey("ctrl", "a")
         time.sleep(0.03)
         pyautogui.press("delete")
         time.sleep(0.05)
+
+        if not self.config.allow_unsafe_hotkey_focus and not self._pre_paste_guard(window, click_xy, "after_clear"):
+            return False
 
         pyperclip.copy(self.config.prompt)
         pyautogui.hotkey("ctrl", "v")
@@ -417,6 +427,18 @@ class PromptMonitor:
                     break
                 time.sleep(0.2)
         return True
+
+    def _pre_paste_guard(self, window: Any, click_xy: tuple[int, int] | None, phase: str) -> bool:
+        verdict, reason = self._focused_target_is_safe_chat_input(window)
+        if not verdict:
+            self._log_submit_decision("paste_blocked", click_xy, f"{phase}:{reason}")
+            return False
+        self._log_submit_decision("paste_allowed", click_xy, f"{phase}:{reason}")
+        return True
+
+    def _log_submit_decision(self, decision: str, click_xy: tuple[int, int] | None, reason: str) -> None:
+        target = "none" if click_xy is None else f"{click_xy[0]},{click_xy[1]}"
+        self._log(f"submit_decision={decision} target={target} reason={reason}")
 
     def _try_verified_hotkey_focus(self, window: Any) -> bool:
         if not self.config.allow_verified_hotkey_fallback:
@@ -614,8 +636,6 @@ class PromptMonitor:
                 time.sleep(0.08)
             if self._uia_point_is_chat_input(window, hard_lock_xy):
                 return True
-            if self.config.allow_force_submit_in_hard_lock_zone and self._is_hard_lock_chat_zone(window, hard_lock_xy):
-                return True
 
         # Some VS Code/Copilot builds expose focused composer edit controls
         # with non-standard bounds; allow focused-edit verification fallback.
@@ -640,6 +660,50 @@ class PromptMonitor:
         rel_x = (int(click_xy[0]) - left) / float(width)
         rel_y = (int(click_xy[1]) - top) / float(height)
         return rel_x >= 0.68 and 0.72 <= rel_y <= 0.98
+
+    def _focused_target_is_safe_chat_input(self, window: Any) -> tuple[bool, str]:
+        if Desktop is None:
+            return False, "uia_unavailable"
+
+        _left, top, width, height = self._window_region(window)
+        lower_guard_y = top + int(height * 0.55)
+
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return False, "vscode_uia_window_missing"
+
+        try:
+            controls = target.descendants()
+        except Exception:
+            return False, "uia_descendants_unavailable"
+
+        focused_seen = False
+        for ctrl in controls:
+            try:
+                if not bool(getattr(ctrl, "has_keyboard_focus", lambda: False)()):
+                    continue
+                focused_seen = True
+
+                marker_text = self._build_control_marker_text(ctrl)
+                ancestry_text = self._build_control_ancestry_marker_text(ctrl)
+                combined_marker = f"{marker_text} {ancestry_text}"
+                if self._is_disallowed_input_target(combined_marker):
+                    return False, self._summarize_marker_reason("terminal_ancestor_or_focus", combined_marker)
+
+                rect = ctrl.rectangle()
+                rect_height = max(0, int(rect.bottom - rect.top))
+                rect_width = max(0, int(rect.right - rect.left))
+                center_y = int((rect.top + rect.bottom) / 2)
+                if center_y < lower_guard_y:
+                    return False, "focused_control_above_chat_zone"
+                if rect_height > 360 or rect_width < int(width * 0.12):
+                    return False, "focused_control_geometry_rejected"
+                return True, self._summarize_marker_reason("focused_safe_lower_input", combined_marker)
+            except Exception:
+                continue
+
+        return False, "no_focused_control" if not focused_seen else "focused_control_unreadable"
 
     def _is_active_window_match(self, window: Any) -> bool:
         try:
@@ -707,10 +771,31 @@ class PromptMonitor:
         element_info = getattr(ctrl, "element_info", None)
         automation_id = ""
         class_name = ""
+        control_type = ""
         if element_info is not None:
             automation_id = str(getattr(element_info, "automation_id", "") or "").lower()
             class_name = str(getattr(element_info, "class_name", "") or "").lower()
-        return f"{name} {automation_id} {class_name}"
+            control_type = str(getattr(element_info, "control_type", "") or "").lower()
+        return f"{name} {automation_id} {class_name} {control_type}"
+
+    def _build_control_ancestry_marker_text(self, ctrl: Any) -> str:
+        markers: list[str] = []
+        current = ctrl
+        for _ in range(8):
+            try:
+                parent = current.parent()
+            except Exception:
+                break
+            if parent is None:
+                break
+            markers.append(self._build_control_marker_text(parent))
+            current = parent
+        return " ".join(markers)
+
+    @staticmethod
+    def _summarize_marker_reason(prefix: str, marker_text: str) -> str:
+        compact = " ".join(marker_text.split())[:160]
+        return f"{prefix}:{compact}"
 
     def _has_chat_input_marker(self, marker_text: str) -> bool:
         return any(token in marker_text for token in CHAT_INPUT_MARKER_TOKENS)

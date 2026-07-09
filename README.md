@@ -22,7 +22,7 @@ Main runtime: `x_trigger_prompt_x.py`
 2. Detects chat state.
    - Active: stop button detected (UI Automation and/or image templates).
    - Idle: stop button not detected.
-3. If idle, focuses chat input, pastes prompt text, sends Enter.
+3. If idle, focuses chat input, verifies the target is not terminal/output/debug-console, clears the composer, verifies focus again, pastes prompt text, sends Enter.
 4. Repeats until one of these is true:
    - `--max-prompts` reached (`1` to `512`).
    - Halt keyword detected in chat output (unless disabled).
@@ -99,7 +99,19 @@ Notes:
 
 - This launches a new, visible desktop PowerShell window.
 - It passes prompt text and halt keyword as direct string arguments.
+- Default mode does not use chat-focus hotkeys, so it will not intentionally toggle or collapse the chat pane.
+- Default mode refuses to paste if focused UIA control text or ancestry looks like terminal/output/debug-console.
 - Stop the loop with `Ctrl+C` in that launched window.
+
+## Default Safety Contract
+
+Default submit behavior is fail-closed:
+
+1. The click target must be in the right-lower chat composer band.
+2. The focused control and its UIA ancestry must not contain terminal, output, debug-console, shell, or console markers.
+3. The tool verifies focus before clearing text and again before pasting.
+4. If verification fails, it logs `submit_decision=...` with the target and reason, skips the cycle, and does not paste.
+5. Hotkey focus fallbacks are disabled by default to avoid closing or toggling the chat pane.
 
 ## Early Stop Keyword
 
@@ -162,6 +174,7 @@ Important limits:
 - `--disable-halt-keyword-scan`
 - `--disable-uia-scan`
 - `--chat-focus-hotkey ctrl+alt+i`
+- `--allow-verified-hotkey-fallback` (opt-in; disabled by default to avoid chat pane toggles)
 - `--input-click-x/--input-click-y`
 - `--input-click-x-ratio/--input-click-y-ratio`
 - `--dry-run`
@@ -226,3 +239,9 @@ Misaligned click target:
 
 - Prefer ratio coordinates.
 - Recalibrate after DPI or monitor changes.
+
+Blocked submit with `submit_decision=paste_blocked`:
+
+- Read the logged reason. Terminal/output/debug-console ancestry is intentionally blocked.
+- If the target coordinates are outside the right-lower chat composer band, recalibrate or pass `--input-click-x-ratio/--input-click-y-ratio` for the chat textbox.
+- Do not use hotkey fallback unless you explicitly accept the risk of chat pane toggles.
