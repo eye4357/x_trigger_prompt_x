@@ -389,6 +389,50 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._submit_prompt(window))
 
+    def test_probe_click_uses_single_candidate(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        clicks: list[tuple[int, int]] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(x: int, y: int) -> None:
+                clicks.append((x, y))
+
+        window = SimpleNamespace(left=100, top=200, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_uia_focused_edit_looks_like_chat_input", return_value=False),
+        ):
+            self.assertIsNone(mon._probe_click_for_chat_input(window))
+
+        self.assertEqual(clicks, [(600, 944)])
+
+    def test_focus_verified_accepts_focused_edit_fallback(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(_x: int, _y: int) -> None:
+                return None
+
+        window = SimpleNamespace(left=0, top=0, width=100, height=100)
+        active = SimpleNamespace(left=0, top=0)
+        fake_gw = SimpleNamespace(getActiveWindow=lambda: active)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "gw", fake_gw),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_uia_point_is_chat_input", return_value=False),
+            patch.object(mon, "_uia_focused_edit_looks_like_chat_input", return_value=True),
+        ):
+            self.assertTrue(mon._focus_verified_chat_input(window, (10, 10)))
+
 
 if __name__ == "__main__":
     unittest.main()

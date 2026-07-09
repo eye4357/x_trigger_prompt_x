@@ -434,17 +434,17 @@ class PromptMonitor:
     def _probe_click_for_chat_input(self, window: Any) -> tuple[int, int] | None:
         left, top, width, height = self._window_region(window)
 
-        x_ratios = (0.5, 0.35, 0.65)
-        y_ratios = (0.90, 0.93, 0.96)
-        for y_ratio in y_ratios:
-            for x_ratio in x_ratios:
-                abs_x = left + int(round(width * x_ratio))
-                abs_y = top + int(round(height * y_ratio))
+        # Single conservative probe near the expected composer location.
+        # This mimics the manual click users perform without roaming the cursor.
+        abs_x = left + int(round(width * 0.50))
+        abs_y = top + int(round(height * 0.93))
 
-                # Probe candidate points without moving/clicking the mouse.
-                # This avoids cursor roaming when no valid chat input is present.
-                if self._uia_point_is_chat_input(window, (abs_x, abs_y)):
-                    return abs_x, abs_y
+        with suppress(Exception):
+            pyautogui.click(abs_x, abs_y)
+            time.sleep(0.06)
+
+        if self._uia_focused_edit_looks_like_chat_input(window):
+            return abs_x, abs_y
 
         return None
 
@@ -498,7 +498,12 @@ class PromptMonitor:
         if not self._is_active_window_match(window):
             return False
 
-        return self._uia_point_is_chat_input(window, click_xy)
+        if self._uia_point_is_chat_input(window, click_xy):
+            return True
+
+        # Some VS Code/Copilot builds expose focused composer edit controls
+        # with non-standard bounds; allow focused-edit verification fallback.
+        return self._uia_focused_edit_looks_like_chat_input(window)
 
     def _is_active_window_match(self, window: Any) -> bool:
         try:
