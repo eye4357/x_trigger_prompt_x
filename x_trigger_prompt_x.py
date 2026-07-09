@@ -53,9 +53,13 @@ class Config:
     prompt: str
     max_prompts: int = 1
     poll_seconds: float = 1.0
+    idle_stable_cycles: int = 2
     submit_cooldown_seconds: float = 1.5
+    no_activity_backoff_seconds: float = 8.0
+    post_submit_activity_wait_seconds: float = 2.5
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
+    reuse_chat_focus_hotkey: bool = False
     stop_templates: tuple[Path, ...] = ()
     template_confidence: float = 0.9
     template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
@@ -76,6 +80,9 @@ class PromptMonitor:
         self._stop_requested = False
         self._submitted = 0
         self._halt_keyword_baseline: int | None = None
+        self._idle_streak = 0
+        self._chat_focus_hotkey_used = False
+        self._last_submit_saw_activity = False
 
     def request_stop(self, *_args: object) -> None:
         self._stop_requested = True
@@ -95,7 +102,17 @@ class PromptMonitor:
 
             is_active = self._is_chat_active(window)
             if is_active:
+                self._idle_streak = 0
                 self._log("Chat active (stop button detected). Waiting...")
+                time.sleep(self.config.poll_seconds)
+                continue
+
+            self._idle_streak += 1
+            if self._idle_streak < self.config.idle_stable_cycles:
+                self._log(
+                    "Chat appears idle but waiting for stable idle cycles "
+                    f"({self._idle_streak}/{self.config.idle_stable_cycles})..."
+                )
                 time.sleep(self.config.poll_seconds)
                 continue
 
@@ -103,11 +120,20 @@ class PromptMonitor:
             ok = self._submit_prompt(window)
             if ok:
                 self._submitted += 1
+                self._idle_streak = 0
                 self._log(f"Submitted {self._submitted}/{self.config.max_prompts}.")
             else:
                 self._log("Submit attempt failed. Retrying...")
 
-            time.sleep(self.config.submit_cooldown_seconds)
+            sleep_seconds = self.config.submit_cooldown_seconds
+            if not self._last_submit_saw_activity:
+                sleep_seconds = max(sleep_seconds, self.config.no_activity_backoff_seconds)
+                self._log(
+                    "No post-submit activity detected; applying extended backoff "
+                    f"({sleep_seconds:.1f}s) to avoid rapid re-submission."
+                )
+
+            time.sleep(sleep_seconds)
 
         self._log("Finished.")
         return 0
@@ -279,6 +305,8 @@ class PromptMonitor:
         return False
 
     def _submit_prompt(self, window: Any) -> bool:
+        self._last_submit_saw_activity = False
+
         # Snapshot current halt keyword occurrence count before submitting.
         # Early-stop should only trigger if new occurrences appear afterward.
         self._halt_keyword_baseline = None
@@ -297,12 +325,18 @@ class PromptMonitor:
             time.sleep(0.1)
         else:
             # Attempt to focus chat via keyboard shortcut.
+            # By default, send this once to avoid toggling/collapsing the chat panel.
             keys = [k.strip() for k in self.config.chat_focus_hotkey.split("+") if k.strip()]
-            if keys:
+            should_send_hotkey = bool(keys) and (
+                self.config.reuse_chat_focus_hotkey or not self._chat_focus_hotkey_used
+            )
+            if should_send_hotkey:
                 pyautogui.hotkey(*keys)
+                self._chat_focus_hotkey_used = True
                 time.sleep(0.15)
 
         if self.config.dry_run:
+            self._last_submit_saw_activity = True
             return True
 
         pyperclip.copy(self.config.prompt)
@@ -316,6 +350,14 @@ class PromptMonitor:
             time.sleep(0.2)
             if not self._is_chat_active(window):
                 pyautogui.press("enter")
+
+        if self.config.post_submit_activity_wait_seconds > 0:
+            deadline = time.monotonic() + self.config.post_submit_activity_wait_seconds
+            while time.monotonic() < deadline:
+                if self._is_chat_active(window):
+                    self._last_submit_saw_activity = True
+                    break
+                time.sleep(0.2)
         return True
 
     def _resolve_input_click(self, window: Any) -> tuple[int, int] | None:
@@ -457,10 +499,28 @@ def parse_args(argv: list[str]) -> Config:
         help="Polling interval while monitoring chat state.",
     )
     parser.add_argument(
+        "--idle-stable-cycles",
+        type=int,
+        default=2,
+        help="Require this many consecutive idle checks before submit (debounce).",
+    )
+    parser.add_argument(
         "--submit-cooldown-seconds",
         type=float,
         default=1.5,
         help="Delay after each submit before next state check.",
+    )
+    parser.add_argument(
+        "--no-activity-backoff-seconds",
+        type=float,
+        default=8.0,
+        help="Extended cooldown when no post-submit activity is detected.",
+    )
+    parser.add_argument(
+        "--post-submit-activity-wait-seconds",
+        type=float,
+        default=2.5,
+        help="How long to wait for active-state evidence after submit.",
     )
     parser.add_argument(
         "--submit-enter-delay-seconds",
@@ -477,6 +537,11 @@ def parse_args(argv: list[str]) -> Config:
         "--chat-focus-hotkey",
         default=DEFAULT_SHORTCUT,
         help=("Hotkey to focus Copilot Chat input, e.g. ctrl+alt+i. " "Ignored if --input-click-x/y are provided."),
+    )
+    parser.add_argument(
+        "--reuse-chat-focus-hotkey",
+        action="store_true",
+        help="Re-send chat focus hotkey before every submit (default sends once).",
     )
     parser.add_argument(
         "--stop-template",
@@ -561,6 +626,15 @@ def parse_args(argv: list[str]) -> Config:
     if not (1 <= args.max_prompts <= 512):
         parser.error("--max-prompts must be between 1 and 512.")
 
+    if args.idle_stable_cycles < 1:
+        parser.error("--idle-stable-cycles must be >= 1.")
+
+    if args.no_activity_backoff_seconds < 0:
+        parser.error("--no-activity-backoff-seconds must be >= 0.")
+
+    if args.post_submit_activity_wait_seconds < 0:
+        parser.error("--post-submit-activity-wait-seconds must be >= 0.")
+
     if args.template_confidence < 0.1 or args.template_confidence > 1.0:
         parser.error("--template-confidence must be between 0.1 and 1.0.")
 
@@ -644,10 +718,14 @@ def parse_args(argv: list[str]) -> Config:
         prompt=prompt_text,
         max_prompts=args.max_prompts,
         poll_seconds=args.poll_seconds,
+        idle_stable_cycles=args.idle_stable_cycles,
         submit_cooldown_seconds=args.submit_cooldown_seconds,
+        no_activity_backoff_seconds=args.no_activity_backoff_seconds,
+        post_submit_activity_wait_seconds=args.post_submit_activity_wait_seconds,
         submit_enter_delay_seconds=args.submit_enter_delay_seconds,
         vs_title_regex=vs_title_regex,
         chat_focus_hotkey=chat_focus_hotkey,
+        reuse_chat_focus_hotkey=args.reuse_chat_focus_hotkey,
         stop_templates=tuple(stop_templates),
         template_confidence=template_confidence,
         template_scales=template_scales,
