@@ -1,5 +1,9 @@
 # Changelog
 
+## Release Notes Index
+
+- [0.0.1](RELEASE_NOTES_0.0.1.md)
+
 ## 0.0.1 - 2026-07-09
 
 ### Added
