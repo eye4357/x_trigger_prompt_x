@@ -337,6 +337,8 @@ class PromptMonitor:
         click_xy = self._resolve_input_click(window)
         if click_xy is None:
             click_xy = self._autodetect_chat_input_click(window)
+        if click_xy is None:
+            click_xy = self._probe_click_for_chat_input(window)
 
         if click_xy is None and not self.config.allow_unsafe_hotkey_focus:
             self._log(
@@ -428,6 +430,65 @@ class PromptMonitor:
         scored.sort(reverse=True)
         _, _, x, y = scored[0]
         return x, y
+
+    def _probe_click_for_chat_input(self, window: Any) -> tuple[int, int] | None:
+        left, top, width, height = self._window_region(window)
+
+        x_ratios = (0.5, 0.35, 0.65)
+        y_ratios = (0.90, 0.93, 0.96)
+        for y_ratio in y_ratios:
+            for x_ratio in x_ratios:
+                abs_x = left + int(round(width * x_ratio))
+                abs_y = top + int(round(height * y_ratio))
+
+                with suppress(Exception):
+                    pyautogui.click(abs_x, abs_y)
+                    time.sleep(0.06)
+
+                if self._uia_focused_edit_looks_like_chat_input(window):
+                    return abs_x, abs_y
+
+        return None
+
+    def _uia_focused_edit_looks_like_chat_input(self, window: Any) -> bool:
+        if Desktop is None:
+            return False
+
+        _left, top, width, height = self._window_region(window)
+        lower_guard_y = top + int(height * 0.55)
+
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return False
+
+        try:
+            focused = target.descendants(control_type="Edit")
+        except Exception:
+            return False
+
+        for ctrl in focused:
+            try:
+                if not bool(getattr(ctrl, "has_keyboard_focus", lambda: False)()):
+                    continue
+
+                marker_text = self._build_control_marker_text(ctrl)
+                if self._is_disallowed_input_target(marker_text):
+                    return False
+
+                if self._has_chat_input_marker(marker_text):
+                    return True
+
+                rect = ctrl.rectangle()
+                rect_height = max(0, int(rect.bottom - rect.top))
+                rect_width = max(0, int(rect.right - rect.left))
+                center_y = int((rect.top + rect.bottom) / 2)
+                if center_y >= lower_guard_y and rect_height <= 160 and rect_width >= int(width * 0.3):
+                    return True
+            except Exception:
+                continue
+
+        return False
 
     def _focus_verified_chat_input(self, window: Any, click_xy: tuple[int, int]) -> bool:
         pyautogui.click(click_xy[0], click_xy[1])
