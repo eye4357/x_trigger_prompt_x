@@ -331,6 +331,54 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._submit_prompt(window))
 
+    def test_submit_clears_composer_before_paste(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            input_click_x=100,
+            input_click_y=200,
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        hotkey_calls: list[tuple[str, ...]] = []
+        key_presses: list[str] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*keys: str) -> None:
+                hotkey_calls.append(tuple(keys))
+
+            @staticmethod
+            def press(key: str) -> None:
+                key_presses.append(key)
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True),
+        ):
+            self.assertTrue(mon._submit_prompt(window))
+
+        self.assertIn(("ctrl", "a"), hotkey_calls)
+        self.assertIn(("ctrl", "v"), hotkey_calls)
+        self.assertIn("delete", key_presses)
+
+    def test_hard_lock_above_click_offsets_upward(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=10, top=20, width=1000, height=800)
+
+        self.assertEqual(mon._hard_lock_above_click(window, (830, 756)), (830, 724))
+
     def test_submit_uses_autodetected_target_when_available(self) -> None:
         cfg = tool.Config(
             prompt="x",

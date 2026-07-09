@@ -94,6 +94,7 @@ class Config:
     input_click_y_ratio: float | None = None
     default_safe_click_x_ratio: float = 0.82
     default_safe_click_y_ratio: float = 0.92
+    hard_lock_vertical_offset_ratio: float = 0.04
     submit_enter_delay_seconds: float = 0.15
     dry_run: bool = False
 
@@ -389,6 +390,12 @@ class PromptMonitor:
             self._last_submit_saw_activity = True
             return True
 
+        # Belt-and-suspenders: clear any stale draft text before pasting.
+        pyautogui.hotkey("ctrl", "a")
+        time.sleep(0.03)
+        pyautogui.press("delete")
+        time.sleep(0.05)
+
         pyperclip.copy(self.config.prompt)
         pyautogui.hotkey("ctrl", "v")
         time.sleep(self.config.submit_enter_delay_seconds)
@@ -557,14 +564,29 @@ class PromptMonitor:
             pyautogui.click(click_xy[0], click_xy[1])
             time.sleep(0.05)
 
-        _active_match = self._is_active_window_match(window)
-
         if self._uia_point_is_chat_input(window, click_xy):
             return True
+
+        # Hard lock fallback: textbox is often just above the bottom-right
+        # agent/action strip. Try a nearby upward offset and verify again.
+        hard_lock_xy = self._hard_lock_above_click(window, click_xy)
+        if hard_lock_xy != click_xy:
+            with suppress(Exception):
+                pyautogui.click(hard_lock_xy[0], hard_lock_xy[1])
+                time.sleep(0.08)
+            if self._uia_point_is_chat_input(window, hard_lock_xy):
+                return True
 
         # Some VS Code/Copilot builds expose focused composer edit controls
         # with non-standard bounds; allow focused-edit verification fallback.
         return self._uia_focused_edit_looks_like_chat_input(window)
+
+    def _hard_lock_above_click(self, window: Any, click_xy: tuple[int, int]) -> tuple[int, int]:
+        left, top, width, height = self._window_region(window)
+        offset = max(20, int(round(height * self.config.hard_lock_vertical_offset_ratio)))
+        x = max(left, min(left + width - 1, int(click_xy[0])))
+        y = max(top, min(top + height - 1, int(click_xy[1]) - offset))
+        return x, y
 
     def _is_active_window_match(self, window: Any) -> bool:
         try:
