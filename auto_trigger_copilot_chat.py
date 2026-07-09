@@ -77,6 +77,8 @@ class Config:
     stop_template: Optional[Path] = None
     template_confidence: float = 0.9
     use_uia_scan: bool = True
+    halt_keyword: str = "HALT NOW"
+    disable_halt_keyword_scan: bool = False
     input_click_x: Optional[int] = None
     input_click_y: Optional[int] = None
     dry_run: bool = False
@@ -100,6 +102,12 @@ class PromptMonitor:
                 time.sleep(self.config.poll_seconds)
                 continue
 
+            if self._should_halt(window):
+                self._log(
+                    "Halt keyword detected in chat output. Ending monitor early."
+                )
+                break
+
             is_active = self._is_chat_active(window)
             if is_active:
                 self._log("Chat active (stop button detected). Waiting...")
@@ -120,6 +128,18 @@ class PromptMonitor:
 
         self._log("Finished.")
         return 0
+
+    def _should_halt(self, window) -> bool:
+        if self.config.disable_halt_keyword_scan:
+            return False
+        if not self.config.halt_keyword.strip():
+            return False
+        if Desktop is None:
+            return False
+        try:
+            return self._uia_detect_halt_keyword(window)
+        except Exception:
+            return False
 
     def _find_vscode_window(self):
         pattern = re.compile(self.config.vs_title_regex, re.IGNORECASE)
@@ -189,6 +209,23 @@ class PromptMonitor:
                 return True
         return False
 
+    def _uia_detect_halt_keyword(self, window) -> bool:
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return False
+
+        keyword = self.config.halt_keyword.strip().lower()
+        controls = target.descendants()
+        for ctrl in controls:
+            try:
+                text = (ctrl.window_text() or "").strip()
+            except Exception:
+                continue
+            if text and keyword in text.lower():
+                return True
+        return False
+
     def _template_detect_stop_button(self, window) -> bool:
         if not self.config.stop_template:
             return False
@@ -238,6 +275,8 @@ class PromptMonitor:
         self._log(
             f"Configured submissions: {self.config.max_prompts} (limit: 512)."
         )
+        if not self.config.disable_halt_keyword_scan:
+            self._log(f"Early-stop keyword: {self.config.halt_keyword!r}.")
         self._log("Press Ctrl+C to stop.")
 
 
@@ -303,6 +342,19 @@ def parse_args(argv: list[str]) -> Config:
         help="Disable UI Automation scan for stop button names.",
     )
     parser.add_argument(
+        "--halt-keyword",
+        default="HALT NOW",
+        help=(
+            "Stop monitoring early if this text appears in VS Code chat output. "
+            "Set a unique marker phrase your agent emits when done."
+        ),
+    )
+    parser.add_argument(
+        "--disable-halt-keyword-scan",
+        action="store_true",
+        help="Disable early-stop keyword detection.",
+    )
+    parser.add_argument(
         "--input-click-x",
         type=int,
         help="Absolute screen X coordinate to click before paste/enter.",
@@ -355,6 +407,8 @@ def parse_args(argv: list[str]) -> Config:
         stop_template=stop_template,
         template_confidence=args.template_confidence,
         use_uia_scan=not args.disable_uia_scan,
+        halt_keyword=args.halt_keyword,
+        disable_halt_keyword_scan=args.disable_halt_keyword_scan,
         input_click_x=args.input_click_x,
         input_click_y=args.input_click_y,
         dry_run=args.dry_run,

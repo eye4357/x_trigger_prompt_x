@@ -8,6 +8,7 @@ Auto-submit one or more prompts to VS Code Copilot Chat when chat is idle.
 - Detects whether Copilot Chat appears active (stop button visible) or idle.
 - When idle, focuses chat input, pastes your prompt, and presses Enter.
 - Repeats until the configured submit count is reached (`1` to `512`).
+- Exits early if a configured halt keyword appears in chat output (default: `HALT NOW`).
 
 ## Install
 
@@ -28,6 +29,23 @@ Default behavior:
 - `--max-prompts` defaults to `1`.
 - Polling loop runs until it submits the requested count.
 - Chat focus hotkey defaults to `ctrl+alt+i`.
+- Early-stop keyword defaults to `HALT NOW`.
+
+## Early Stop Keyword
+
+If the monitored agent ends with a phrase like `HALT NOW`, the script can stop immediately.
+
+Example:
+
+```powershell
+python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --max-prompts 256 --halt-keyword "HALT NOW"
+```
+
+If you do not want this behavior:
+
+```powershell
+python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --disable-halt-keyword-scan
+```
 
 ## Recommended Reliable Mode (Template + Optional Click Point)
 
@@ -58,6 +76,8 @@ python auto_trigger_copilot_chat.py `
 - `--chat-focus-hotkey ctrl+alt+i`: Shortcut used to focus chat input.
 - `--stop-template stop_button.png`: Enable image matching for stop button.
 - `--disable-uia-scan`: Skip UI Automation button-name detection.
+- `--halt-keyword "HALT NOW"`: End monitor early when this text appears in chat output.
+- `--disable-halt-keyword-scan`: Disable early-stop keyword detection.
 - `--input-click-x/--input-click-y`: Click input box before paste/send.
 - `--dry-run`: Logs actions without sending prompt text.
 
