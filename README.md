@@ -71,8 +71,7 @@ Use this when you want a separate desktop PowerShell window you can see while
 `x_trigger_prompt_x` runs your Prompt a1 file.
 
 ```powershell
-$childCommand = @"
-`$prompt = @'
+$prompt = @'
 Prompt a1: 5.3 Codex default execution (x_trigger_prompt_x compatible)
 gorgeous...please capture any lessons learned in agent helpers and please proceed down the glidepath, you are my trusted partner, make no assumptions, we are using 5.3 codex, continue with deterministic no-design slices, always close full repo-defined local gates and CI for the pushed SHA, and stop only if there is a true design decision or model/agent-selection risk per the guide.
 This prompt is designed for automated reruns via x_trigger_prompt_x. Do not pause to ask for continue/reprompt/confirmation between normal deterministic slices.
@@ -82,15 +81,17 @@ When escalation is required, decode that hex sequence and emit the decoded stop 
 If no escalation is needed, do not emit the decoded stop keyword.
 '@
 
-`$halt = [Text.Encoding]::ASCII.GetString([byte[]](0x48,0x41,0x4C,0x54,0x20,0x4E,0x4F,0x57))
-& 'c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe' 'x_trigger_prompt_x.py' --prompt `$prompt --halt-keyword `$halt --max-prompts 128
-"@
+$halt = [Text.Encoding]::ASCII.GetString([byte[]](0x48,0x41,0x4C,0x54,0x20,0x4E,0x4F,0x57))
+$env:XTP_PROMPT = $prompt
+$env:XTP_HALT = $halt
 
 Start-Process powershell.exe -WorkingDirectory "c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/x_trigger_prompt_x" -ArgumentList @(
    "-NoExit",
    "-Command",
-   $childCommand
+   "& 'c:/Users/primu/OneDrive/Desktop/ppnw_2026_07/.venv/Scripts/python.exe' 'x_trigger_prompt_x.py' --prompt `$env:XTP_PROMPT --halt-keyword `$env:XTP_HALT --max-prompts 128"
 )
+
+Remove-Item Env:XTP_PROMPT, Env:XTP_HALT -ErrorAction SilentlyContinue
 ```
 
 Notes:
