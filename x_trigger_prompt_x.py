@@ -95,6 +95,7 @@ class Config:
     default_safe_click_x_ratio: float = 0.82
     default_safe_click_y_ratio: float = 0.92
     hard_lock_vertical_offset_ratio: float = 0.04
+    allow_force_submit_in_hard_lock_zone: bool = True
     submit_enter_delay_seconds: float = 0.15
     dry_run: bool = False
 
@@ -613,6 +614,8 @@ class PromptMonitor:
                 time.sleep(0.08)
             if self._uia_point_is_chat_input(window, hard_lock_xy):
                 return True
+            if self.config.allow_force_submit_in_hard_lock_zone and self._is_hard_lock_chat_zone(window, hard_lock_xy):
+                return True
 
         # Some VS Code/Copilot builds expose focused composer edit controls
         # with non-standard bounds; allow focused-edit verification fallback.
@@ -628,6 +631,15 @@ class PromptMonitor:
         x = max(left, min(left + width - 1, int(click_xy[0])))
         y = max(top, min(top + height - 1, int(click_xy[1]) - offset))
         return x, y
+
+    def _is_hard_lock_chat_zone(self, window: Any, click_xy: tuple[int, int]) -> bool:
+        left, top, width, height = self._window_region(window)
+        if width <= 0 or height <= 0:
+            return False
+
+        rel_x = (int(click_xy[0]) - left) / float(width)
+        rel_y = (int(click_xy[1]) - top) / float(height)
+        return rel_x >= 0.68 and 0.72 <= rel_y <= 0.98
 
     def _is_active_window_match(self, window: Any) -> bool:
         try:

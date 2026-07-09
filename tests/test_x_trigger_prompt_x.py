@@ -821,6 +821,35 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertFalse(mon._submit_prompt(window))
 
+    def test_hard_lock_chat_zone_helper(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=100, top=200, width=1000, height=800)
+
+        self.assertTrue(mon._is_hard_lock_chat_zone(window, (820, 840)))
+        self.assertFalse(mon._is_hard_lock_chat_zone(window, (500, 840)))
+
+    def test_focus_verified_accepts_hard_lock_zone_force_submit(self) -> None:
+        cfg = tool.Config(prompt="x", allow_force_submit_in_hard_lock_zone=True)
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(_x: int, _y: int) -> None:
+                return None
+
+        window = SimpleNamespace(left=0, top=0, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "Desktop", object()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_uia_point_is_chat_input", return_value=False),
+            patch.object(mon, "_hard_lock_above_click", return_value=(820, 736)),
+            patch.object(mon, "_is_hard_lock_chat_zone", return_value=True),
+        ):
+            self.assertTrue(mon._focus_verified_chat_input(window, (820, 768)))
+
 
 if __name__ == "__main__":
     unittest.main()
