@@ -24,6 +24,13 @@ python -m pip install -r requirements.txt
 python auto_trigger_copilot_chat.py --prompt "Continue the glidepath. Use the same plan format." --max-prompts 32
 ```
 
+Profile-based quick start (recommended):
+
+```powershell
+python calibrate_trigger_profile.py
+python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --max-prompts 128 --profile-file .\trigger_profile.json
+```
+
 Default behavior:
 
 - `--max-prompts` defaults to `1`.
@@ -66,6 +73,27 @@ python auto_trigger_copilot_chat.py `
   --input-click-y 990
 ```
 
+## Calibration Helper Script
+
+Use the helper to capture both:
+
+1. A stop-button template image.
+2. Chat input click coordinates in absolute and window-relative ratio form.
+
+Run:
+
+```powershell
+python calibrate_trigger_profile.py
+```
+
+Then run the monitor with the generated profile:
+
+```powershell
+python auto_trigger_copilot_chat.py --prompt-file .\prompt.txt --max-prompts 128 --profile-file .\trigger_profile.json
+```
+
+You can still override profile values with explicit CLI flags.
+
 ## Useful Flags
 
 - `--prompt "..."`: Prompt text inline.
@@ -79,7 +107,17 @@ python auto_trigger_copilot_chat.py `
 - `--halt-keyword "HALT NOW"`: End monitor early when this text appears in chat output.
 - `--disable-halt-keyword-scan`: Disable early-stop keyword detection.
 - `--input-click-x/--input-click-y`: Click input box before paste/send.
+- `--input-click-x-ratio/--input-click-y-ratio`: Window-relative click point in `[0.0, 1.0]`.
+- `--profile-file trigger_profile.json`: Load calibration defaults from helper script.
 - `--dry-run`: Logs actions without sending prompt text.
+
+## Resolution-Agnostic Considerations
+
+- Prefer `--input-click-x-ratio` and `--input-click-y-ratio` (or profile file values) over absolute pixels. Ratios track the VS Code window size and are more portable across resolutions.
+- Keep VS Code layout stable (chat panel placement, sidebars, zoom level) because ratio clicks assume similar UI structure.
+- Template matching is the least resolution-agnostic part. If monitor scale, theme, or Copilot icon style changes, recapture the stop template.
+- If you move between monitors with very different DPI scaling, recalibrate once per setup for best reliability.
+- UI Automation text detection is generally more robust than image matching and should stay enabled unless it causes false positives in your environment.
 
 ## Safety Notes
 
