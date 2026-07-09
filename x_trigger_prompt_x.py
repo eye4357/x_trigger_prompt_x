@@ -60,6 +60,7 @@ class Config:
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
     reuse_chat_focus_hotkey: bool = False
+    allow_unsafe_hotkey_focus: bool = False
     stop_templates: tuple[Path, ...] = ()
     template_confidence: float = 0.9
     template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
@@ -320,12 +321,19 @@ class PromptMonitor:
         time.sleep(0.15)
 
         click_xy = self._resolve_input_click(window)
+        if click_xy is None and not self.config.allow_unsafe_hotkey_focus:
+            self._log(
+                "Refusing submit: chat input click coordinates are required for safe paste targeting. "
+                "Set --input-click-x/y or --input-click-x-ratio/y-ratio."
+            )
+            return False
+
         if click_xy is not None:
-            pyautogui.click(click_xy[0], click_xy[1])
-            time.sleep(0.1)
-        else:
-            # Attempt to focus chat via keyboard shortcut.
-            # By default, send this once to avoid toggling/collapsing the chat panel.
+            if not self._focus_verified_chat_input(window, click_xy):
+                self._log("Refusing submit: unable to verify chat input focus target.")
+                return False
+        elif self.config.allow_unsafe_hotkey_focus:
+            # Unsafe escape hatch for legacy environments.
             keys = [k.strip() for k in self.config.chat_focus_hotkey.split("+") if k.strip()]
             should_send_hotkey = bool(keys) and (
                 self.config.reuse_chat_focus_hotkey or not self._chat_focus_hotkey_used
@@ -359,6 +367,66 @@ class PromptMonitor:
                     break
                 time.sleep(0.2)
         return True
+
+    def _focus_verified_chat_input(self, window: Any, click_xy: tuple[int, int]) -> bool:
+        pyautogui.click(click_xy[0], click_xy[1])
+        time.sleep(0.1)
+        with suppress(Exception):
+            pyautogui.click(click_xy[0], click_xy[1])
+            time.sleep(0.05)
+
+        if not self._is_active_window_match(window):
+            return False
+
+        return self._uia_point_is_chat_input(window, click_xy)
+
+    def _is_active_window_match(self, window: Any) -> bool:
+        try:
+            active = gw.getActiveWindow()
+            if active is None:
+                return False
+            return int(active.left) == int(window.left) and int(active.top) == int(window.top)
+        except Exception:
+            return False
+
+    def _uia_point_is_chat_input(self, window: Any, click_xy: tuple[int, int]) -> bool:
+        if Desktop is None:
+            return False
+
+        left, top, width, height = self._window_region(window)
+        abs_x, abs_y = click_xy
+        lower_guard_y = top + int(height * 0.55)
+
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return False
+
+        for ctrl in target.descendants(control_type="Edit"):
+            try:
+                rect = ctrl.rectangle()
+                if not (rect.left <= abs_x <= rect.right and rect.top <= abs_y <= rect.bottom):
+                    continue
+
+                name = (ctrl.window_text() or "").strip().lower()
+                element_info = getattr(ctrl, "element_info", None)
+                automation_id = ""
+                class_name = ""
+                if element_info is not None:
+                    automation_id = str(getattr(element_info, "automation_id", "") or "").lower()
+                    class_name = str(getattr(element_info, "class_name", "") or "").lower()
+
+                marker_text = f"{name} {automation_id} {class_name}"
+                if any(token in marker_text for token in ("chat", "copilot", "prompt", "message")):
+                    return True
+
+                # Fallback heuristic: chat input is expected in lower pane of the VS Code window.
+                if abs_y >= lower_guard_y:
+                    return True
+            except Exception:
+                continue
+
+        return False
 
     def _resolve_input_click(self, window: Any) -> tuple[int, int] | None:
         if self.config.input_click_x is not None and self.config.input_click_y is not None:
@@ -544,6 +612,14 @@ def parse_args(argv: list[str]) -> Config:
         help="Re-send chat focus hotkey before every submit (default sends once).",
     )
     parser.add_argument(
+        "--allow-unsafe-hotkey-focus",
+        action="store_true",
+        help=(
+            "Allow fallback chat focus hotkey when click-target coordinates are absent. "
+            "Unsafe: may focus non-chat UI and may collapse/toggle chat pane."
+        ),
+    )
+    parser.add_argument(
         "--stop-template",
         type=Path,
         action="append",
@@ -726,6 +802,7 @@ def parse_args(argv: list[str]) -> Config:
         vs_title_regex=vs_title_regex,
         chat_focus_hotkey=chat_focus_hotkey,
         reuse_chat_focus_hotkey=args.reuse_chat_focus_hotkey,
+        allow_unsafe_hotkey_focus=args.allow_unsafe_hotkey_focus,
         stop_templates=tuple(stop_templates),
         template_confidence=template_confidence,
         template_scales=template_scales,

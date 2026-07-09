@@ -159,7 +159,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._should_halt(SimpleNamespace()))
 
-    def test_submit_uses_focus_hotkey_once_by_default(self) -> None:
+    def test_submit_refuses_without_click_target_by_default(self) -> None:
         cfg = tool.Config(
             prompt="x",
             chat_focus_hotkey="ctrl+alt+i",
@@ -191,16 +191,17 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
             patch.object(mon, "_is_chat_active", return_value=False),
         ):
-            self.assertTrue(mon._submit_prompt(window))
-            self.assertTrue(mon._submit_prompt(window))
+            self.assertFalse(mon._submit_prompt(window))
+            self.assertFalse(mon._submit_prompt(window))
 
         focus_calls = [c for c in hotkey_calls if c == ("ctrl", "alt", "i")]
-        self.assertEqual(focus_calls, [("ctrl", "alt", "i")])
+        self.assertEqual(focus_calls, [])
 
-    def test_submit_can_reuse_focus_hotkey_when_enabled(self) -> None:
+    def test_submit_can_use_unsafe_hotkey_fallback_when_explicitly_enabled(self) -> None:
         cfg = tool.Config(
             prompt="x",
             chat_focus_hotkey="ctrl+alt+i",
+            allow_unsafe_hotkey_focus=True,
             reuse_chat_focus_hotkey=True,
             post_submit_activity_wait_seconds=0.0,
         )
@@ -235,6 +236,40 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         focus_calls = [c for c in hotkey_calls if c == ("ctrl", "alt", "i")]
         self.assertEqual(focus_calls, [("ctrl", "alt", "i"), ("ctrl", "alt", "i")])
+
+    def test_submit_uses_verified_click_target_when_configured(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            input_click_x=100,
+            input_click_y=200,
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=100, height=100)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True),
+        ):
+            self.assertTrue(mon._submit_prompt(window))
 
 
 if __name__ == "__main__":
