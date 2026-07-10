@@ -1020,8 +1020,39 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         self.assertEqual(
             mon._focus_click_candidates(window, (644, 716)),
-            ((644, 668), (644, 692), (644, 716), (644, 644)),
+            (
+                (644, 668),
+                (548, 668),
+                (724, 668),
+                (596, 668),
+                (692, 668),
+                (644, 692),
+                (548, 692),
+                (724, 692),
+                (596, 692),
+                (692, 692),
+                (644, 716),
+                (548, 716),
+                (724, 716),
+                (596, 716),
+                (692, 716),
+                (644, 644),
+                (548, 644),
+                (724, 644),
+                (596, 644),
+                (692, 644),
+            ),
         )
+
+    def test_focus_click_candidates_filter_outside_squished_safe_band(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=100, top=200, width=800, height=600)
+
+        candidates = mon._focus_click_candidates(window, (520, 716))
+
+        self.assertNotIn((424, 668), candidates)
+        self.assertIn((520, 668), candidates)
 
     def test_focus_verified_tries_next_candidate_when_first_misses(self) -> None:
         cfg = tool.Config(prompt="x")
@@ -1044,7 +1075,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._focus_verified_chat_input(window, (644, 716)))
 
-        self.assertEqual(clicks, [(644, 668), (644, 668), (644, 692), (644, 692)])
+        self.assertEqual(clicks, [(644, 668), (644, 668), (548, 668), (548, 668)])
 
     def test_focus_verified_blocks_hard_lock_zone_without_uia_proof(self) -> None:
         cfg = tool.Config(prompt="x", allow_force_submit_in_hard_lock_zone=True)

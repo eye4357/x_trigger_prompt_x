@@ -619,7 +619,11 @@ class PromptMonitor:
         if Desktop is None:
             return False
 
-        for index, focus_xy in enumerate(self._focus_click_candidates(window, click_xy)):
+        candidates = self._focus_click_candidates(window, click_xy)
+        self._log(
+            "focus_candidates=" + ";".join(f"{candidate_x},{candidate_y}" for candidate_x, candidate_y in candidates)
+        )
+        for index, focus_xy in enumerate(candidates):
             try:
                 pyautogui.click(focus_xy[0], focus_xy[1])
             except Exception as exc:
@@ -662,21 +666,32 @@ class PromptMonitor:
         if width >= 900 and height >= 650:
             return ((x, max(top, min(top + height - 1, y - offset))),)
 
-        raw_candidates = (
-            (x, y - offset),
-            (x, y - int(round(offset * 0.5))),
-            (x, y),
-            (x, y - int(round(offset * 1.5))),
+        raw_x_candidates = (
+            x,
+            x - int(round(width * 0.12)),
+            x + int(round(width * 0.10)),
+            x - int(round(width * 0.06)),
+            x + int(round(width * 0.06)),
+        )
+        raw_y_candidates = (
+            y - offset,
+            y - int(round(offset * 0.5)),
+            y,
+            y - int(round(offset * 1.5)),
         )
 
         candidates: list[tuple[int, int]] = []
         seen: set[tuple[int, int]] = set()
-        for candidate_x, candidate_y in raw_candidates:
-            candidate = (
-                max(left, min(left + width - 1, int(candidate_x))),
-                max(top, min(top + height - 1, int(candidate_y))),
-            )
-            if candidate not in seen:
+        for candidate_y in raw_y_candidates:
+            for candidate_x in raw_x_candidates:
+                candidate = (
+                    max(left, min(left + width - 1, int(candidate_x))),
+                    max(top, min(top + height - 1, int(candidate_y))),
+                )
+                if candidate in seen:
+                    continue
+                if not self._is_hard_lock_chat_zone(window, candidate):
+                    continue
                 seen.add(candidate)
                 candidates.append(candidate)
         return tuple(candidates)
