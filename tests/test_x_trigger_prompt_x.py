@@ -1347,11 +1347,11 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(tool, "pyautogui", FakeAutoGui()),
             patch.object(tool, "Desktop", object()),
             patch("x_trigger_prompt_x.time.sleep", return_value=None),
-            patch.object(mon, "_uia_point_is_chat_input", side_effect=[False, True]),
+            patch.object(mon, "_uia_point_is_chat_input", side_effect=[False, False, False, True]),
         ):
             self.assertTrue(mon._focus_verified_chat_input(window, (644, 716)))
 
-        self.assertEqual(clicks, [(644, 668), (644, 668), (548, 668), (548, 668)])
+        self.assertEqual(clicks, [(644, 668), (548, 668)])
 
     def test_focus_verified_blocks_hard_lock_zone_without_uia_proof(self) -> None:
         cfg = tool.Config(prompt="x", allow_force_submit_in_hard_lock_zone=True)

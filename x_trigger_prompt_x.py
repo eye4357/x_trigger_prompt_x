@@ -810,11 +810,12 @@ class PromptMonitor:
                     self._log("PyAutoGUI fail-safe triggered before focus click; submit skipped.")
                     return False
                 raise
+            # Use single-click targeting to avoid accidental double-click text
+            # selection, then give UIA a short settle/recheck window.
             time.sleep(0.1 if index == 0 else 0.08)
-            with suppress(Exception):
-                pyautogui.click(focus_xy[0], focus_xy[1])
-                time.sleep(0.05)
-
+            if self._uia_point_is_chat_input(window, focus_xy):
+                return True
+            time.sleep(0.04)
             if self._uia_point_is_chat_input(window, focus_xy):
                 return True
 
