@@ -419,6 +419,77 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._submit_prompt(window))
 
+    def test_submit_allows_uia_autodetect_point_outside_hard_lock_when_uia_verified(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_autodetect_chat_input_click", return_value=(430, 700)),
+            patch.object(mon, "_is_hard_lock_chat_zone", return_value=False),
+            patch.object(mon, "_uia_point_is_chat_input", return_value=True),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", return_value=True),
+        ):
+            self.assertTrue(mon._submit_prompt(window))
+
+    def test_submit_rejects_probe_point_outside_hard_lock_without_uia_override(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(_key: str) -> None:
+                return None
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                raise AssertionError("paste should not occur")
+
+        window = SimpleNamespace(activate=lambda: None, left=0, top=0, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_autodetect_chat_input_click", return_value=None),
+            patch.object(mon, "_uia_chat_input_centroid_click", return_value=None),
+            patch.object(mon, "_probe_click_for_chat_input", return_value=(430, 700)),
+            patch.object(mon, "_is_hard_lock_chat_zone", return_value=False),
+        ):
+            self.assertFalse(mon._submit_prompt(window))
+
     def test_submit_uses_probe_target_when_autodetect_absent(self) -> None:
         cfg = tool.Config(
             prompt="x",

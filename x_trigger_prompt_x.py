@@ -389,8 +389,13 @@ class PromptMonitor:
             return False
 
         if click_xy is not None and not self._is_hard_lock_chat_zone(window, click_xy):
-            self._log_submit_decision("target_rejected", click_xy, "outside_hard_lock_chat_zone")
-            return False
+            # UIA-proven points are allowed even when pane geometry drifts
+            # outside conservative hard-lock bounds.
+            if target_source in ("uia_autodetect", "uia_centroid") and self._uia_point_is_chat_input(window, click_xy):
+                self._log_submit_decision("target_override", click_xy, "outside_hard_lock_but_uia_verified")
+            else:
+                self._log_submit_decision("target_rejected", click_xy, "outside_hard_lock_chat_zone")
+                return False
 
         if click_xy is not None and not self._focus_verified_chat_input(window, click_xy):
             if not self._try_verified_hotkey_focus(window):
