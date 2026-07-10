@@ -1013,6 +1013,39 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertTrue(mon._is_hard_lock_chat_zone(window, (564, 584)))
         self.assertFalse(mon._is_hard_lock_chat_zone(window, (420, 584)))
 
+    def test_focus_click_candidates_cover_squished_vertical_hitbox(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=100, top=200, width=800, height=600)
+
+        self.assertEqual(
+            mon._focus_click_candidates(window, (644, 716)),
+            ((644, 668), (644, 692), (644, 716), (644, 644)),
+        )
+
+    def test_focus_verified_tries_next_candidate_when_first_misses(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        clicks: list[tuple[int, int]] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def click(x: int, y: int) -> None:
+                clicks.append((x, y))
+
+        window = SimpleNamespace(left=100, top=200, width=800, height=600)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "Desktop", object()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_uia_point_is_chat_input", side_effect=[False, True]),
+        ):
+            self.assertTrue(mon._focus_verified_chat_input(window, (644, 716)))
+
+        self.assertEqual(clicks, [(644, 668), (644, 668), (644, 692), (644, 692)])
+
     def test_focus_verified_blocks_hard_lock_zone_without_uia_proof(self) -> None:
         cfg = tool.Config(prompt="x", allow_force_submit_in_hard_lock_zone=True)
         mon = tool.PromptMonitor(cfg)

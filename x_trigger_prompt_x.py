@@ -507,14 +507,13 @@ class PromptMonitor:
         # Single conservative probe near the expected composer location.
         # This mimics the manual click users perform without roaming the cursor.
         anchor_x, anchor_y = self._default_safe_input_click(window)
-        abs_x, abs_y = self._hard_lock_above_click(window, (anchor_x, anchor_y))
+        for abs_x, abs_y in self._focus_click_candidates(window, (anchor_x, anchor_y)):
+            with suppress(Exception):
+                pyautogui.click(abs_x, abs_y)
+                time.sleep(0.06)
 
-        with suppress(Exception):
-            pyautogui.click(abs_x, abs_y)
-            time.sleep(0.06)
-
-        if self._uia_focused_edit_looks_like_chat_input(window):
-            return anchor_x, anchor_y
+            if self._uia_focused_edit_looks_like_chat_input(window):
+                return anchor_x, anchor_y
 
         return None
 
@@ -620,34 +619,20 @@ class PromptMonitor:
         if Desktop is None:
             return False
 
-        focus_xy = (
-            self._hard_lock_above_click(window, click_xy)
-            if self._is_hard_lock_chat_zone(window, click_xy)
-            else click_xy
-        )
-
-        try:
-            pyautogui.click(focus_xy[0], focus_xy[1])
-        except Exception as exc:
-            if self._is_pyautogui_failsafe_exception(exc):
-                self._log("PyAutoGUI fail-safe triggered before focus click; submit skipped.")
-                return False
-            raise
-        time.sleep(0.1)
-        with suppress(Exception):
-            pyautogui.click(focus_xy[0], focus_xy[1])
-            time.sleep(0.05)
-
-        if self._uia_point_is_chat_input(window, focus_xy):
-            return True
-
-        # For non-anchor call sites, still try the nearby upward textbox target.
-        hard_lock_xy = self._hard_lock_above_click(window, focus_xy)
-        if hard_lock_xy != focus_xy:
+        for index, focus_xy in enumerate(self._focus_click_candidates(window, click_xy)):
+            try:
+                pyautogui.click(focus_xy[0], focus_xy[1])
+            except Exception as exc:
+                if self._is_pyautogui_failsafe_exception(exc):
+                    self._log("PyAutoGUI fail-safe triggered before focus click; submit skipped.")
+                    return False
+                raise
+            time.sleep(0.1 if index == 0 else 0.08)
             with suppress(Exception):
-                pyautogui.click(hard_lock_xy[0], hard_lock_xy[1])
-                time.sleep(0.08)
-            if self._uia_point_is_chat_input(window, hard_lock_xy):
+                pyautogui.click(focus_xy[0], focus_xy[1])
+                time.sleep(0.05)
+
+            if self._uia_point_is_chat_input(window, focus_xy):
                 return True
 
         # Some VS Code/Copilot builds expose focused composer edit controls
@@ -664,6 +649,37 @@ class PromptMonitor:
         x = max(left, min(left + width - 1, int(click_xy[0])))
         y = max(top, min(top + height - 1, int(click_xy[1]) - offset))
         return x, y
+
+    def _focus_click_candidates(self, window: Any, click_xy: tuple[int, int]) -> tuple[tuple[int, int], ...]:
+        left, top, width, height = self._window_region(window)
+        x = max(left, min(left + width - 1, int(click_xy[0])))
+        y = max(top, min(top + height - 1, int(click_xy[1])))
+
+        if not self._is_hard_lock_chat_zone(window, (x, y)):
+            return ((x, y),)
+
+        offset = max(20, int(round(height * self.config.hard_lock_vertical_offset_ratio)))
+        if width >= 900 and height >= 650:
+            return ((x, max(top, min(top + height - 1, y - offset))),)
+
+        raw_candidates = (
+            (x, y - offset),
+            (x, y - int(round(offset * 0.5))),
+            (x, y),
+            (x, y - int(round(offset * 1.5))),
+        )
+
+        candidates: list[tuple[int, int]] = []
+        seen: set[tuple[int, int]] = set()
+        for candidate_x, candidate_y in raw_candidates:
+            candidate = (
+                max(left, min(left + width - 1, int(candidate_x))),
+                max(top, min(top + height - 1, int(candidate_y))),
+            )
+            if candidate not in seen:
+                seen.add(candidate)
+                candidates.append(candidate)
+        return tuple(candidates)
 
     def _is_hard_lock_chat_zone(self, window: Any, click_xy: tuple[int, int]) -> bool:
         left, top, width, height = self._window_region(window)
