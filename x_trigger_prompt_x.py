@@ -843,7 +843,13 @@ class PromptMonitor:
 
         offset = max(20, int(round(height * self.config.hard_lock_vertical_offset_ratio)))
         if width >= 900 and height >= 650:
-            return ((x, max(top, min(top + height - 1, y - offset))),)
+            y_up = max(top, min(top + height - 1, y - offset))
+            y_mid = max(top, min(top + height - 1, y - int(round(offset * 0.5))))
+            large_candidates: list[tuple[int, int]] = []
+            for candidate in ((x, y), (x, y_mid), (x, y_up)):
+                if candidate not in large_candidates:
+                    large_candidates.append(candidate)
+            return tuple(large_candidates)
 
         raw_x_candidates = (
             x,

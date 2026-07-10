@@ -546,7 +546,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             self.assertIsNone(mon._probe_click_for_chat_input(window))
 
         self.assertGreaterEqual(len(clicks), 4)
-        self.assertEqual(clicks[0], (920, 872))
+        self.assertEqual(clicks[0], (920, 936))
 
     def test_verified_probe_returns_anchor_to_avoid_double_hard_lock_offset(self) -> None:
         cfg = tool.Config(prompt="x")
@@ -568,7 +568,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertEqual(mon._probe_click_for_chat_input(window), (920, 936))
 
-        self.assertEqual(clicks, [(920, 872)])
+        self.assertEqual(clicks, [(920, 936)])
 
     def test_default_probe_anchors_expand_for_squished_window(self) -> None:
         cfg = tool.Config(prompt="x")
@@ -1315,6 +1315,20 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         self.assertNotIn((424, 668), candidates)
         self.assertIn((520, 668), candidates)
+
+    def test_focus_click_candidates_large_window_try_target_before_upward_offset(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=100, top=200, width=1000, height=800)
+
+        self.assertEqual(
+            mon._focus_click_candidates(window, (820, 840)),
+            (
+                (820, 840),
+                (820, 808),
+                (820, 776),
+            ),
+        )
 
     def test_focus_verified_tries_next_candidate_when_first_misses(self) -> None:
         cfg = tool.Config(prompt="x")
