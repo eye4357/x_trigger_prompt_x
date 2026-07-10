@@ -378,6 +378,87 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertIn(("ctrl", "v"), hotkey_calls)
         self.assertIn("delete", key_presses)
 
+    def test_submit_sends_return_fallback_when_enter_shows_no_activity(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            input_click_x=830,
+            input_click_y=756,
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        key_presses: list[str] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(key: str) -> None:
+                key_presses.append(key)
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=10, top=20, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", return_value=False),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", return_value=True),
+        ):
+            self.assertTrue(mon._submit_prompt(window))
+
+        self.assertIn("enter", key_presses)
+        self.assertIn("return", key_presses)
+        self.assertGreaterEqual(key_presses.count("enter"), 2)
+
+    def test_submit_retries_when_activity_probe_raises(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            input_click_x=830,
+            input_click_y=756,
+            post_submit_activity_wait_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        key_presses: list[str] = []
+
+        class FakeAutoGui:
+            @staticmethod
+            def hotkey(*_keys: str) -> None:
+                return None
+
+            @staticmethod
+            def press(key: str) -> None:
+                key_presses.append(key)
+
+        class FakeClip:
+            @staticmethod
+            def copy(_text: str) -> None:
+                return None
+
+        window = SimpleNamespace(activate=lambda: None, left=10, top=20, width=1000, height=800)
+
+        with (
+            patch.object(tool, "pyautogui", FakeAutoGui()),
+            patch.object(tool, "pyperclip", FakeClip()),
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+            patch.object(mon, "_is_chat_active", side_effect=RuntimeError("transient activity probe failure")),
+            patch.object(mon, "_focus_verified_chat_input", return_value=True),
+            patch.object(mon, "_pre_paste_guard", return_value=True),
+        ):
+            self.assertTrue(mon._submit_prompt(window))
+
+        self.assertGreaterEqual(key_presses.count("enter"), 2)
+        self.assertIn("return", key_presses)
+
     def test_hard_lock_above_click_offsets_upward(self) -> None:
         cfg = tool.Config(prompt="x")
         mon = tool.PromptMonitor(cfg)

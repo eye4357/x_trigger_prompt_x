@@ -431,14 +431,28 @@ class PromptMonitor:
         pyperclip.copy(self.config.prompt)
         pyautogui.hotkey("ctrl", "v")
         time.sleep(self.config.submit_enter_delay_seconds)
+        self._log("Sending Enter submit key.")
         pyautogui.press("enter")
 
-        # Some chat surfaces occasionally swallow the first Enter after paste.
-        # If chat still appears idle shortly after submit, send one fallback Enter.
+        # Some chat surfaces occasionally swallow Enter after paste.
+        # Retry Enter once, then Return, if chat still appears idle.
+        time.sleep(0.2)
+        is_active_after_enter = False
         with suppress(Exception):
-            time.sleep(0.2)
-            if not self._is_chat_active(window):
-                pyautogui.press("enter")
+            is_active_after_enter = self._is_chat_active(window)
+
+        if not is_active_after_enter:
+            self._log("No activity after Enter; sending second Enter fallback.")
+            pyautogui.press("enter")
+            time.sleep(0.15)
+
+            is_active_after_second_enter = False
+            with suppress(Exception):
+                is_active_after_second_enter = self._is_chat_active(window)
+
+            if not is_active_after_second_enter:
+                self._log("No activity after second Enter; sending Return fallback.")
+                pyautogui.press("return")
 
         if self.config.post_submit_activity_wait_seconds > 0:
             deadline = time.monotonic() + self.config.post_submit_activity_wait_seconds
