@@ -35,6 +35,20 @@ Calibration helper: `calibrate_trigger_profile.py`
 - Saves absolute and ratio coordinates in `trigger_profile.json`.
 - Enables more portable runs across different display sizes.
 
+Input targeting fallback order (when explicit coordinates are not provided):
+
+1. UIA chat-input autodetect from explicit chat markers.
+2. UIA centroid over safe lower-pane accessibility controls (screen-reader style tree).
+3. Deterministic multi-anchor probe in the lower composer zone.
+4. Default safe ratio anchor with pre-paste focus safety checks.
+
+When layout drift debugging is needed, add `--log-centroid-debug` to print:
+
+- candidate scan counts,
+- rejection buckets (disallowed/type/geometry/position),
+- whether safe-zone snapping was applied,
+- final centroid coordinates.
+
 ## Install
 
 Runtime only:
@@ -136,7 +150,8 @@ Best reliability stack:
 1. Keep UI Automation scan enabled.
 2. Provide multiple stop-button templates.
 3. Use template scale sweep.
-4. Prefer ratio-based click coordinates (`--input-click-x-ratio`, `--input-click-y-ratio`).
+4. Prefer ratio-based click coordinates (`--input-click-x-ratio`, `--input-click-y-ratio`) for highly customized layouts.
+5. Let centroid fallback run before probe/default when no stable click point is known.
 
 Example:
 
@@ -157,6 +172,7 @@ Important limits:
 - No GUI automation can be perfectly resolution-agnostic across all themes/scales/layouts.
 - Template matching may require recapture after major VS Code theme or zoom changes.
 - Window-relative ratios reduce, but do not eliminate, layout drift issues.
+- Accessibility trees can vary across VS Code/Copilot versions; centroid mode filters disallowed targets and snaps to a safe composer band to reduce drift sensitivity.
 
 ## CLI Flags (Core)
 
@@ -177,6 +193,7 @@ Important limits:
 - `--allow-verified-hotkey-fallback` (opt-in; disabled by default to avoid chat pane toggles)
 - `--input-click-x/--input-click-y`
 - `--input-click-x-ratio/--input-click-y-ratio`
+- `--log-centroid-debug`
 - `--dry-run`
 
 ## Development And Release Checks
@@ -239,6 +256,8 @@ Misaligned click target:
 
 - Prefer ratio coordinates.
 - Recalibrate after DPI or monitor changes.
+- If layout changes frequently, avoid pinning absolute coordinates and let UIA centroid fallback select a stable lower-pane target each cycle.
+- For intermittent failures, run with `--log-centroid-debug --dry-run` and inspect `centroid_debug ...` plus `target_selection ...` lines.
 
 Blocked submit with `submit_decision=paste_blocked`:
 

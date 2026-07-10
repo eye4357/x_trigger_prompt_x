@@ -96,6 +96,7 @@ class Config:
     default_safe_click_y_ratio: float = 0.92
     hard_lock_vertical_offset_ratio: float = 0.08
     allow_force_submit_in_hard_lock_zone: bool = False
+    log_centroid_debug: bool = False
     submit_enter_delay_seconds: float = 0.15
     dry_run: bool = False
 
@@ -342,6 +343,7 @@ class PromptMonitor:
 
     def _submit_prompt(self, window: Any) -> bool:
         self._last_submit_saw_activity = False
+        target_source = "unresolved"
 
         # Snapshot current halt keyword occurrence count before submitting.
         # Early-stop should only trigger if new occurrences appear afterward.
@@ -356,14 +358,28 @@ class PromptMonitor:
         time.sleep(0.15)
 
         click_xy = self._resolve_input_click(window)
+        if click_xy is not None:
+            target_source = "configured_click"
         if click_xy is None:
             click_xy = self._autodetect_chat_input_click(window)
+            if click_xy is not None:
+                target_source = "uia_autodetect"
+        if click_xy is None:
+            click_xy = self._uia_chat_input_centroid_click(window)
+            if click_xy is not None:
+                target_source = "uia_centroid"
         if click_xy is None:
             click_xy = self._probe_click_for_chat_input(window)
+            if click_xy is not None:
+                target_source = "probe_click"
         if click_xy is None and not self.config.allow_unsafe_hotkey_focus:
             # Deterministic fallback for layouts where UIA metadata is sparse.
             # Safety is still enforced by focused-control verification.
             click_xy = self._default_safe_input_click(window)
+            target_source = "default_safe_click"
+
+        if click_xy is not None:
+            self._log(f"target_selection source={target_source} xy={click_xy[0]},{click_xy[1]}")
 
         if click_xy is None and not self.config.allow_unsafe_hotkey_focus:
             self._log(
@@ -471,7 +487,7 @@ class PromptMonitor:
         if not target.exists(timeout=0.5):
             return None
 
-        scored: list[tuple[int, int, int, int]] = []
+        scored: list[tuple[int, int, int, int, int]] = []
         for ctrl in target.descendants(control_type="Edit"):
             try:
                 rect = ctrl.rectangle()
@@ -483,16 +499,28 @@ class PromptMonitor:
                     continue
 
                 has_chat_marker = self._has_chat_input_marker(marker_text)
-                # Auto-detection is strict: do not infer from generic lower-pane edits.
-                if not has_chat_marker:
+                rect_height = max(0, int(rect.bottom - rect.top))
+                rect_width = max(0, int(rect.right - rect.left))
+                is_lower_geometry_candidate = (
+                    int((rect.top + rect.bottom) / 2) >= lower_guard_y
+                    and rect_height <= 320
+                    and rect_width >= int(width * 0.18)
+                )
+
+                # Prefer explicit chat-marked controls, but keep a geometry fallback
+                # for UI builds where marker text is sparse or renamed.
+                if not has_chat_marker and not is_lower_geometry_candidate:
                     continue
-                marker_score = 1 if has_chat_marker else 0
+
+                marker_score = 2 if has_chat_marker else 1
 
                 center_x = max(left, min(left + width - 1, int((rect.left + rect.right) / 2)))
                 center_y = max(top, min(top + height - 1, int((rect.top + rect.bottom) / 2)))
 
+                right_bias = center_x
+
                 # Prefer explicit chat markers and lower controls nearest the input area.
-                scored.append((marker_score, center_y, center_x, center_y))
+                scored.append((marker_score, center_y, right_bias, center_x, center_y))
             except Exception:
                 continue
 
@@ -500,20 +528,166 @@ class PromptMonitor:
             return None
 
         scored.sort(reverse=True)
-        _, _, x, y = scored[0]
+        _, _, _, x, y = scored[0]
         return x, y
 
-    def _probe_click_for_chat_input(self, window: Any) -> tuple[int, int] | None:
-        # Single conservative probe near the expected composer location.
-        # This mimics the manual click users perform without roaming the cursor.
-        anchor_x, anchor_y = self._default_safe_input_click(window)
-        for abs_x, abs_y in self._focus_click_candidates(window, (anchor_x, anchor_y)):
-            with suppress(Exception):
-                pyautogui.click(abs_x, abs_y)
-                time.sleep(0.06)
+    def _uia_chat_input_centroid_click(self, window: Any) -> tuple[int, int] | None:
+        if Desktop is None:
+            self._log_centroid_debug("centroid_unavailable reason=uia_unavailable")
+            return None
 
-            if self._uia_focused_edit_looks_like_chat_input(window):
-                return anchor_x, anchor_y
+        left, top, width, height = self._window_region(window)
+        lower_guard_y = top + int(height * 0.55)
+
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            self._log_centroid_debug("centroid_unavailable reason=vscode_uia_window_missing")
+            return None
+
+        weight_total = 0.0
+        x_sum = 0.0
+        y_sum = 0.0
+        scanned_controls = 0
+        accepted_controls = 0
+        rejected_disallowed = 0
+        rejected_type = 0
+        rejected_geometry = 0
+        rejected_position = 0
+
+        for ctrl in target.descendants():
+            try:
+                scanned_controls += 1
+                rect = ctrl.rectangle()
+                rect_left = int(rect.left)
+                rect_top = int(rect.top)
+                rect_right = int(rect.right)
+                rect_bottom = int(rect.bottom)
+
+                rect_height = max(0, rect_bottom - rect_top)
+                rect_width = max(0, rect_right - rect_left)
+                if rect_height <= 0 or rect_width <= 0:
+                    continue
+
+                center_x = int((rect_left + rect_right) / 2)
+                center_y = int((rect_top + rect_bottom) / 2)
+                if center_y < lower_guard_y:
+                    continue
+
+                marker_text = self._build_control_marker_text(ctrl)
+                if self._is_disallowed_input_target(marker_text):
+                    rejected_disallowed += 1
+                    continue
+
+                element_info = getattr(ctrl, "element_info", None)
+                control_type = str(getattr(element_info, "control_type", "") or "")
+                if control_type and control_type not in ALLOWED_CHAT_INPUT_CONTROL_TYPES:
+                    rejected_type += 1
+                    continue
+
+                # Weight explicit markers highest; otherwise accept lower-pane,
+                # chat-shaped controls as a screen-reader-backed geometry fallback.
+                if self._has_chat_input_marker(marker_text):
+                    weight = 3.0
+                else:
+                    if rect_height > 360 or rect_width < int(width * 0.12):
+                        rejected_geometry += 1
+                        continue
+                    if center_x < left + int(width * 0.42):
+                        rejected_position += 1
+                        continue
+                    weight = 1.0
+
+                x_sum += float(center_x) * weight
+                y_sum += float(center_y) * weight
+                weight_total += weight
+                accepted_controls += 1
+            except Exception:
+                continue
+
+        if weight_total <= 0.0:
+            self._log_centroid_debug(
+                "centroid_unavailable "
+                f"reason=no_safe_candidates scanned={scanned_controls} accepted={accepted_controls} "
+                f"reject_disallowed={rejected_disallowed} reject_type={rejected_type} "
+                f"reject_geometry={rejected_geometry} reject_position={rejected_position}"
+            )
+            return None
+
+        centroid_x = int(round(x_sum / weight_total))
+        centroid_y = int(round(y_sum / weight_total))
+
+        centroid_x = max(left, min(left + width - 1, centroid_x))
+        centroid_y = max(top, min(top + height - 1, centroid_y))
+
+        snapped = False
+        if not self._is_hard_lock_chat_zone(window, (centroid_x, centroid_y)):
+            # Snap to the nearest safe zone coordinate when centroid drifts due to
+            # mixed lower-pane controls in accessibility trees.
+            min_x_ratio = 0.68 if width >= 900 else 0.52
+            min_y_ratio = 0.72 if height >= 650 else 0.60
+            centroid_x = max(centroid_x, left + int(round(width * min_x_ratio)))
+            centroid_y = max(centroid_y, top + int(round(height * min_y_ratio)))
+            centroid_y = min(centroid_y, top + int(round(height * 0.98)))
+            snapped = True
+
+        self._log_centroid_debug(
+            "centroid_selected "
+            f"x={centroid_x} y={centroid_y} snapped={str(snapped).lower()} "
+            f"scanned={scanned_controls} accepted={accepted_controls} "
+            f"reject_disallowed={rejected_disallowed} reject_type={rejected_type} "
+            f"reject_geometry={rejected_geometry} reject_position={rejected_position}"
+        )
+
+        return centroid_x, centroid_y
+
+    def _log_centroid_debug(self, message: str) -> None:
+        if self.config.log_centroid_debug:
+            self._log(f"centroid_debug {message}")
+
+    def _default_probe_anchors(self, window: Any) -> tuple[tuple[int, int], ...]:
+        left, top, width, height = self._window_region(window)
+
+        ratio_points: list[tuple[float, float]] = [
+            (self.config.default_safe_click_x_ratio, self.config.default_safe_click_y_ratio),
+            (0.74, 0.92),
+            (0.88, 0.92),
+            (0.82, 0.88),
+        ]
+
+        # Compact layouts often shift composer position up/left.
+        if width < 900:
+            ratio_points.extend([(0.66, 0.90), (0.58, 0.90)])
+        if height < 650:
+            ratio_points.extend([(0.82, 0.84), (0.70, 0.84)])
+
+        anchors: list[tuple[int, int]] = []
+        seen: set[tuple[int, int]] = set()
+        for x_ratio, y_ratio in ratio_points:
+            abs_x = left + int(round(width * x_ratio))
+            abs_y = top + int(round(height * y_ratio))
+            anchor = (
+                max(left, min(left + width - 1, abs_x)),
+                max(top, min(top + height - 1, abs_y)),
+            )
+            if anchor in seen:
+                continue
+            seen.add(anchor)
+            anchors.append(anchor)
+
+        return tuple(anchors)
+
+    def _probe_click_for_chat_input(self, window: Any) -> tuple[int, int] | None:
+        # Try a small, deterministic set of lower-composer anchors so dynamic
+        # pane shapes still converge without roaming broadly across the window.
+        for anchor_x, anchor_y in self._default_probe_anchors(window):
+            for abs_x, abs_y in self._focus_click_candidates(window, (anchor_x, anchor_y)):
+                with suppress(Exception):
+                    pyautogui.click(abs_x, abs_y)
+                    time.sleep(0.06)
+
+                if self._uia_focused_edit_looks_like_chat_input(window):
+                    return anchor_x, anchor_y
 
         return None
 
@@ -1124,6 +1298,11 @@ def parse_args(argv: list[str]) -> Config:
         help=("Window-relative Y coordinate in [0.0, 1.0]. " "More resolution-agnostic than absolute Y."),
     )
     parser.add_argument(
+        "--log-centroid-debug",
+        action="store_true",
+        help="Log centroid candidate counts, rejection reasons, and final snap decisions each cycle.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Do not paste/send; only log when a submit would happen.",
@@ -1255,6 +1434,7 @@ def parse_args(argv: list[str]) -> Config:
         input_click_y=input_click_y,
         input_click_x_ratio=input_click_x_ratio,
         input_click_y_ratio=input_click_y_ratio,
+        log_centroid_debug=args.log_centroid_debug,
         dry_run=args.dry_run,
     )
 

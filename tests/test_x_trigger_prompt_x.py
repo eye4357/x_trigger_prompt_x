@@ -56,6 +56,10 @@ class ParseArgsTests(unittest.TestCase):
         self.assertEqual(cfg.input_click_x_ratio, 0.5)
         self.assertEqual(cfg.input_click_y_ratio, 0.75)
 
+    def test_log_centroid_debug_flag_sets_config(self) -> None:
+        cfg = tool.parse_args(["--prompt", "hello", "--log-centroid-debug"])
+        self.assertTrue(cfg.log_centroid_debug)
+
 
 class HelperFunctionTests(unittest.TestCase):
     def test_parse_scales_csv_deduplicates_and_preserves_order(self) -> None:
@@ -95,7 +99,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             bottom = 660
 
         class FakeCtrl:
-            element_info = SimpleNamespace(automation_id="terminalInput", class_name="xterm")
+            element_info = SimpleNamespace(automation_id="inputField", class_name="editorPane")
 
             @staticmethod
             def rectangle() -> FakeRect:
@@ -103,7 +107,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
             @staticmethod
             def window_text() -> str:
-                return "Terminal"
+                return ""
 
         class FakeTarget:
             @staticmethod
@@ -126,7 +130,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         window = SimpleNamespace(left=0, top=0, width=1200, height=900)
         with patch.object(tool, "Desktop", FakeDesktop):
-            self.assertIsNone(mon._autodetect_chat_input_click(window))
+            self.assertEqual(mon._autodetect_chat_input_click(window), (500, 630))
 
     def test_resolve_input_click_prefers_absolute(self) -> None:
         cfg = tool.Config(prompt="x", input_click_x=100, input_click_y=200)
@@ -450,7 +454,7 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertTrue(mon._submit_prompt(window))
 
-    def test_probe_click_uses_single_candidate(self) -> None:
+    def test_probe_click_uses_multiple_anchors_when_unverified(self) -> None:
         cfg = tool.Config(prompt="x")
         mon = tool.PromptMonitor(cfg)
 
@@ -470,7 +474,8 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         ):
             self.assertIsNone(mon._probe_click_for_chat_input(window))
 
-        self.assertEqual(clicks, [(920, 872)])
+        self.assertGreaterEqual(len(clicks), 4)
+        self.assertEqual(clicks[0], (920, 872))
 
     def test_verified_probe_returns_anchor_to_avoid_double_hard_lock_offset(self) -> None:
         cfg = tool.Config(prompt="x")
@@ -493,6 +498,136 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             self.assertEqual(mon._probe_click_for_chat_input(window), (920, 936))
 
         self.assertEqual(clicks, [(920, 872)])
+
+    def test_default_probe_anchors_expand_for_squished_window(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        window = SimpleNamespace(left=100, top=200, width=800, height=600)
+
+        anchors = mon._default_probe_anchors(window)
+
+        self.assertIn((756, 752), anchors)
+        self.assertIn((628, 740), anchors)
+        self.assertIn((564, 740), anchors)
+
+    def test_centroid_debug_logs_when_enabled(self) -> None:
+        cfg = tool.Config(prompt="x", log_centroid_debug=True)
+        mon = tool.PromptMonitor(cfg)
+
+        with patch.object(mon, "_log") as log_mock:
+            mon._log_centroid_debug("selected x=1 y=2")
+
+        log_mock.assert_called_once_with("centroid_debug selected x=1 y=2")
+
+    def test_centroid_debug_is_silent_when_disabled(self) -> None:
+        cfg = tool.Config(prompt="x", log_centroid_debug=False)
+        mon = tool.PromptMonitor(cfg)
+
+        with patch.object(mon, "_log") as log_mock:
+            mon._log_centroid_debug("selected x=1 y=2")
+
+        log_mock.assert_not_called()
+
+    def test_uia_chat_input_centroid_prefers_chat_marked_controls(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class ChatRect:
+            left = 800
+            top = 730
+            right = 980
+            bottom = 770
+
+        class GenericRect:
+            left = 700
+            top = 700
+            right = 940
+            bottom = 760
+
+        class ChatCtrl:
+            element_info = SimpleNamespace(automation_id="copilotChatInput", class_name="editor", control_type="Edit")
+
+            @staticmethod
+            def rectangle() -> ChatRect:
+                return ChatRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return "Ask Copilot"
+
+        class GenericCtrl:
+            element_info = SimpleNamespace(automation_id="inputArea", class_name="pane", control_type="Edit")
+
+            @staticmethod
+            def rectangle() -> GenericRect:
+                return GenericRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return ""
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                return [ChatCtrl(), GenericCtrl()]
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1000, height=800)
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertEqual(mon._uia_chat_input_centroid_click(window), (872, 745))
+
+    def test_uia_chat_input_centroid_snaps_to_safe_zone(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class LeftHeavyRect:
+            left = 520
+            top = 710
+            right = 660
+            bottom = 750
+
+        class LeftHeavyCtrl:
+            element_info = SimpleNamespace(automation_id="inputArea", class_name="pane", control_type="Edit")
+
+            @staticmethod
+            def rectangle() -> LeftHeavyRect:
+                return LeftHeavyRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return ""
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                return [LeftHeavyCtrl()]
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1000, height=800)
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertEqual(mon._uia_chat_input_centroid_click(window), (680, 730))
 
     def test_focus_verified_accepts_focused_edit_fallback(self) -> None:
         cfg = tool.Config(prompt="x")
