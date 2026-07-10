@@ -429,7 +429,7 @@ class PromptMonitor:
         return True
 
     def _pre_paste_guard(self, window: Any, click_xy: tuple[int, int] | None, phase: str) -> bool:
-        verdict, reason = self._focused_target_is_safe_chat_input(window)
+        verdict, reason = self._focused_target_is_safe_chat_input(window, click_xy)
         if not verdict:
             self._log_submit_decision("paste_blocked", click_xy, f"{phase}:{reason}")
             return False
@@ -713,7 +713,11 @@ class PromptMonitor:
 
         return rel_x >= min_x and min_y <= rel_y <= 0.98
 
-    def _focused_target_is_safe_chat_input(self, window: Any) -> tuple[bool, str]:
+    def _focused_target_is_safe_chat_input(
+        self,
+        window: Any,
+        click_xy: tuple[int, int] | None = None,
+    ) -> tuple[bool, str]:
         if Desktop is None:
             return False, "uia_unavailable"
 
@@ -749,6 +753,8 @@ class PromptMonitor:
                 center_y = int((rect.top + rect.bottom) / 2)
                 if center_y < lower_guard_y:
                     return False, "focused_control_above_chat_zone"
+                if click_xy is not None and self._uia_point_is_chat_input(window, click_xy):
+                    return True, self._summarize_marker_reason("focused_safe_verified_click", combined_marker)
                 if rect_height > 360 or rect_width < int(width * 0.12):
                     return False, "focused_control_geometry_rejected"
                 return True, self._summarize_marker_reason("focused_safe_lower_input", combined_marker)

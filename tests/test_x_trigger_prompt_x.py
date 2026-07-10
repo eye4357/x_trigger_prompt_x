@@ -913,6 +913,62 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertFalse(verdict)
         self.assertIn("terminal_ancestor_or_focus", reason)
 
+    def test_verified_click_allows_narrow_focused_chat_child_geometry(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 900
+            top = 700
+            right = 940
+            bottom = 760
+
+        class FakeCtrl:
+            element_info = SimpleNamespace(automation_id="", class_name="editor", control_type="Edit")
+
+            @staticmethod
+            def has_keyboard_focus() -> bool:
+                return True
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+            @staticmethod
+            def window_text() -> str:
+                return ""
+
+            @staticmethod
+            def parent() -> object | None:
+                return None
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                return [FakeCtrl()]
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        window = SimpleNamespace(left=0, top=0, width=1000, height=800)
+        with (
+            patch.object(tool, "Desktop", FakeDesktop),
+            patch.object(mon, "_uia_point_is_chat_input", return_value=True),
+        ):
+            verdict, reason = mon._focused_target_is_safe_chat_input(window, (830, 756))
+
+        self.assertTrue(verdict)
+        self.assertIn("focused_safe_verified_click", reason)
+
     def test_submit_blocks_when_focus_changes_after_clear(self) -> None:
         cfg = tool.Config(
             prompt="x",
