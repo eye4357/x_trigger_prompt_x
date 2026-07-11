@@ -100,15 +100,17 @@ $halt = [Text.Encoding]::ASCII.GetString([byte[]](0x48,0x41,0x4C,0x54,0x20,0x4E,
 $env:XTP_PROMPT = $prompt
 $env:XTP_HALT = $halt
 $env:XTP_PYTHON = (Get-Command python).Source
+$env:XTP_SCRIPT = (Resolve-Path .\x_trigger_prompt_x.py).Path
 
 Start-Process powershell.exe -WorkingDirectory (Get-Location).Path -ArgumentList @(
    "-NoLogo",
+   "-NoExit",
    "-NoProfile",
    "-NonInteractive",
    "-ExecutionPolicy",
    "Bypass",
    "-Command",
-   "$ErrorActionPreference = 'Stop'; $ConfirmPreference = 'None'; $ProgressPreference = 'SilentlyContinue'; try { & `$env:XTP_PYTHON x_trigger_prompt_x.py --prompt `$env:XTP_PROMPT --halt-keyword `$env:XTP_HALT --max-prompts 128 } finally { Remove-Item Env:XTP_PROMPT, Env:XTP_HALT, Env:XTP_PYTHON -ErrorAction SilentlyContinue }"
+   "$ErrorActionPreference = 'Stop'; $ConfirmPreference = 'None'; $ProgressPreference = 'SilentlyContinue'; try { & `$env:XTP_PYTHON `$env:XTP_SCRIPT --prompt `$env:XTP_PROMPT --halt-keyword `$env:XTP_HALT --max-prompts 128 } catch { Write-Host ('x_trigger_prompt_x launch failed: ' + `$_.Exception.Message) -ForegroundColor Red; throw } finally { Remove-Item Env:XTP_PROMPT, Env:XTP_HALT, Env:XTP_PYTHON, Env:XTP_SCRIPT -ErrorAction SilentlyContinue }"
 )
 
 ```
@@ -117,6 +119,7 @@ Notes:
 
 - This launches a new, visible desktop PowerShell window.
 - It passes prompt text and halt keyword as direct string arguments.
+- It resolves `x_trigger_prompt_x.py` to an absolute path before launch so the child shell does not fail if the working folder differs.
 - It runs the child shell with `-NoProfile -NonInteractive -ExecutionPolicy Bypass` to reduce profile and confirmation popups that can steal focus.
 - Default mode does not use chat-focus hotkeys, so it will not intentionally toggle or collapse the chat pane.
 - Default mode refuses to paste if focused UIA control text or ancestry looks like terminal/output/debug-console.
