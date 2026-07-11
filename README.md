@@ -117,6 +117,42 @@ Start-Process powershell.exe -WorkingDirectory (Get-Location).Path -ArgumentList
 
 Notes:
 
+
+### Launcher Variant A: Profile-File Primary Path
+
+Use this when you have a calibrated profile and want deterministic coordinate reuse.
+
+```powershell
+$env:XTP_PROFILE = (Resolve-Path .\trigger_profile.json).Path
+
+Start-Process powershell.exe -WorkingDirectory (Get-Location).Path -ArgumentList @(
+   "-NoLogo",
+   "-NoExit",
+   "-NoProfile",
+   "-NonInteractive",
+   "-ExecutionPolicy",
+   "Bypass",
+   "-Command",
+   "$ErrorActionPreference = 'Stop'; $ConfirmPreference = 'None'; $ProgressPreference = 'SilentlyContinue'; try { & `$env:XTP_PYTHON `$env:XTP_SCRIPT --prompt `$env:XTP_PROMPT --halt-keyword `$env:XTP_HALT --max-prompts 128 --profile-file `$env:XTP_PROFILE } catch { Write-Host ('x_trigger_prompt_x launch failed: ' + `$_.Exception.Message) -ForegroundColor Red; throw } finally { Remove-Item Env:XTP_PROMPT, Env:XTP_HALT, Env:XTP_PYTHON, Env:XTP_SCRIPT, Env:XTP_PROFILE -ErrorAction SilentlyContinue }"
+)
+```
+
+### Launcher Variant B: UIA-Off Fallback Path
+
+Use this when UIA keeps reporting false active-chat state and blocks idle submission.
+
+```powershell
+Start-Process powershell.exe -WorkingDirectory (Get-Location).Path -ArgumentList @(
+   "-NoLogo",
+   "-NoExit",
+   "-NoProfile",
+   "-NonInteractive",
+   "-ExecutionPolicy",
+   "Bypass",
+   "-Command",
+   "$ErrorActionPreference = 'Stop'; $ConfirmPreference = 'None'; $ProgressPreference = 'SilentlyContinue'; try { & `$env:XTP_PYTHON `$env:XTP_SCRIPT --prompt `$env:XTP_PROMPT --halt-keyword `$env:XTP_HALT --max-prompts 128 --disable-uia-scan } catch { Write-Host ('x_trigger_prompt_x launch failed: ' + `$_.Exception.Message) -ForegroundColor Red; throw } finally { Remove-Item Env:XTP_PROMPT, Env:XTP_HALT, Env:XTP_PYTHON, Env:XTP_SCRIPT -ErrorAction SilentlyContinue }"
+)
+```
 - This launches a new, visible desktop PowerShell window.
 - It passes prompt text and halt keyword as direct string arguments.
 - It resolves `x_trigger_prompt_x.py` to an absolute path before launch so the child shell does not fail if the working folder differs.
@@ -124,6 +160,8 @@ Notes:
 - Default mode does not use chat-focus hotkeys, so it will not intentionally toggle or collapse the chat pane.
 - Default mode refuses to paste if focused UIA control text or ancestry looks like terminal/output/debug-console.
 - Stop the loop with `Ctrl+C` in that launched window.
+- Variant A adds `--profile-file` for calibrated runs.
+- Variant B adds `--disable-uia-scan` when UIA false-positives keep chat in a permanent active state.
 
 ## Default Safety Contract
 
