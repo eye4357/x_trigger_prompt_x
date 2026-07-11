@@ -102,9 +102,13 @@ $env:XTP_HALT = $halt
 $env:XTP_PYTHON = (Get-Command python).Source
 
 Start-Process powershell.exe -WorkingDirectory (Get-Location).Path -ArgumentList @(
-   "-NoExit",
+   "-NoLogo",
+   "-NoProfile",
+   "-NonInteractive",
+   "-ExecutionPolicy",
+   "Bypass",
    "-Command",
-   "& `$env:XTP_PYTHON x_trigger_prompt_x.py --prompt `$env:XTP_PROMPT --halt-keyword `$env:XTP_HALT --max-prompts 128; Remove-Item Env:XTP_PROMPT, Env:XTP_HALT, Env:XTP_PYTHON -ErrorAction SilentlyContinue"
+   "$ErrorActionPreference = 'Stop'; $ConfirmPreference = 'None'; $ProgressPreference = 'SilentlyContinue'; try { & `$env:XTP_PYTHON x_trigger_prompt_x.py --prompt `$env:XTP_PROMPT --halt-keyword `$env:XTP_HALT --max-prompts 128 } finally { Remove-Item Env:XTP_PROMPT, Env:XTP_HALT, Env:XTP_PYTHON -ErrorAction SilentlyContinue }"
 )
 
 ```
@@ -113,6 +117,7 @@ Notes:
 
 - This launches a new, visible desktop PowerShell window.
 - It passes prompt text and halt keyword as direct string arguments.
+- It runs the child shell with `-NoProfile -NonInteractive -ExecutionPolicy Bypass` to reduce profile and confirmation popups that can steal focus.
 - Default mode does not use chat-focus hotkeys, so it will not intentionally toggle or collapse the chat pane.
 - Default mode refuses to paste if focused UIA control text or ancestry looks like terminal/output/debug-console.
 - Stop the loop with `Ctrl+C` in that launched window.
