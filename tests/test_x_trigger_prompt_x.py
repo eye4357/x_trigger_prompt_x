@@ -1948,6 +1948,16 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         messages = [call.args[0] for call in log_mock.call_args_list]
         self.assertIn("Single-flight timeout: 60.0s.", messages)
 
+    def test_print_header_logs_output_stable_cycles(self) -> None:
+        cfg = tool.Config(prompt="x", max_prompts=3, output_stable_cycles=4)
+        mon = tool.PromptMonitor(cfg)
+
+        with patch.object(mon, "_log") as log_mock:
+            mon._print_header()
+
+        messages = [call.args[0] for call in log_mock.call_args_list]
+        self.assertIn("Output stable cycles: 4.", messages)
+
 
 if __name__ == "__main__":
     unittest.main()
