@@ -19,9 +19,9 @@ That script is now the normal operator interface. It embeds Prompt a1, asks a sh
 The Q&A covers the runtime choices that used to be scattered across README examples:
 
 - max prompt submissions, default `128`
+- unchanged UIA output snapshots before next submit, default `2`
 - profile path, default `.\trigger_profile.json`
 - whether to run calibration if the profile is missing
-- single-flight timeout seconds, default `45`
 - whether to disable UI Automation scan when false active-state detection is stuck
 - whether to enable centroid debug logging
 - whether to run in `--dry-run` mode
@@ -42,7 +42,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_trigger_prompt.ps1
 4. Accept the defaults for normal deterministic glidepath execution.
 5. If the profile is missing, answer yes to calibration and follow the on-screen calibration prompts.
 
-For recurring use, the usual defaults are enough: `128` prompts, single-flight timeout `45s`, `.\trigger_profile.json`, calibration if missing, UIA scan enabled, centroid debug off, dry run off, same window.
+For recurring use, the usual defaults are enough: `128` prompts, `2` unchanged UIA output snapshots, `.\trigger_profile.json`, calibration if missing, UIA scan enabled, centroid debug off, dry run off, same window.
 
 ## What The Tool Does
 
@@ -51,7 +51,7 @@ For recurring use, the usual defaults are enough: `128` prompts, single-flight t
 1. Finds a matching VS Code window.
 2. Detects whether Copilot Chat is active or idle.
 3. When idle, focuses the chat composer, verifies the target is not terminal/output/debug-console, clears the composer, pastes Prompt a1, and submits it.
-4. Enforces single-flight transitions so each submit must complete its response transition before the next submit can fire.
+4. After each submit, waits for an active response edge, then requires stable idle and unchanged UIA output snapshots before another submit can fire.
 5. Repeats until `--max-prompts` is reached, the halt keyword appears, or the operator interrupts with `Ctrl+C`.
 
 Calibration is handled by `calibrate_trigger_profile.py`. The generated profile can contain both absolute and ratio click coordinates; runtime normalizes that profile to ratio coordinates for portability.
@@ -100,9 +100,9 @@ False active detection, where the launcher keeps waiting even though chat is idl
 
 Stacked submits, where a new prompt fires before the prior response fully settles:
 
-- Keep single-flight timeout at the default `45` unless you are explicitly tuning for slow/noisy activity edges.
-- If the monitor appears stuck after a valid submit transition, raise single-flight timeout gradually (for example `60-90`) before changing other guardrails.
-- Check the end-of-run `Single-flight summary: activity_edges=..., timeout_fallbacks=...` line to see whether transitions are mostly edge-detected or timeout-driven.
+- Keep UIA scan enabled; the single-flight guard uses accessibility output snapshots to confirm completion.
+- Leave unchanged UIA output snapshots at the default `2` unless you are deliberately tuning for a noisy VS Code accessibility tree.
+- Treat `Single-flight activity edge timeout reached` as a diagnostic warning, not a completion signal. The monitor will continue waiting for real activity/output evidence.
 
 Misaligned click target:
 
@@ -145,6 +145,7 @@ Normal operation should use `run_trigger_prompt.ps1`. The Python flags remain av
 - `--poll-seconds 1.0`
 - `--submit-cooldown-seconds 1.5`
 - `--single-flight-timeout-seconds 45.0`
+- `--output-stable-cycles 2`
 - `--stop-template path.png` (repeatable)
 - `--stop-template-glob .\templates\stop_*.png` (repeatable)
 - `--template-confidence 0.90`

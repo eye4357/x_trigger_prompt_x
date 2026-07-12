@@ -77,6 +77,7 @@ class Config:
     submit_cooldown_seconds: float = 1.5
     no_activity_backoff_seconds: float = 8.0
     single_flight_timeout_seconds: float = 45.0
+    output_stable_cycles: int = 2
     post_submit_activity_wait_seconds: float = 2.5
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
@@ -114,6 +115,9 @@ class PromptMonitor:
         self._awaiting_post_submit_activity = False
         self._awaiting_post_submit_started_at = 0.0
         self._awaiting_post_submit_activity_seen = False
+        self._awaiting_post_submit_timeout_logged = False
+        self._last_completion_fingerprint: tuple[str, ...] | None = None
+        self._completion_stable_streak = 0
         self._single_flight_activity_edges = 0
         self._single_flight_timeout_fallbacks = 0
 
@@ -140,6 +144,9 @@ class PromptMonitor:
                 if self._awaiting_post_submit_activity and not self._awaiting_post_submit_activity_seen:
                     self._single_flight_activity_edges += 1
                     self._awaiting_post_submit_activity_seen = True
+                    self._awaiting_post_submit_timeout_logged = False
+                    self._last_completion_fingerprint = None
+                    self._completion_stable_streak = 0
                 self._log(f"Chat active (stop button detected via {active_source}). Waiting...")
                 time.sleep(self.config.poll_seconds)
                 continue
@@ -156,12 +163,15 @@ class PromptMonitor:
                     time.sleep(self.config.poll_seconds)
                     continue
 
-                self._log(
-                    "Single-flight activity edge timeout reached; requiring stable idle transition "
-                    "before next submit."
-                )
-                self._single_flight_timeout_fallbacks += 1
-                self._awaiting_post_submit_activity_seen = True
+                if not self._awaiting_post_submit_timeout_logged:
+                    self._log(
+                        "Single-flight activity edge timeout reached; still waiting for activity evidence "
+                        "before next submit."
+                    )
+                    self._single_flight_timeout_fallbacks += 1
+                    self._awaiting_post_submit_timeout_logged = True
+                time.sleep(self.config.poll_seconds)
+                continue
 
             if self._awaiting_post_submit_activity and self._awaiting_post_submit_activity_seen:
                 if self._idle_streak < self.config.idle_stable_cycles:
@@ -172,11 +182,34 @@ class PromptMonitor:
                     time.sleep(self.config.poll_seconds)
                     continue
 
+                fingerprint = self._chat_output_fingerprint(window)
+                if fingerprint is None:
+                    self._log("Single-flight guard: waiting for UIA chat output snapshot before next submit.")
+                    time.sleep(self.config.poll_seconds)
+                    continue
+
+                if fingerprint != self._last_completion_fingerprint:
+                    self._last_completion_fingerprint = fingerprint
+                    self._completion_stable_streak = 1
+                else:
+                    self._completion_stable_streak += 1
+
+                if self._completion_stable_streak < self.config.output_stable_cycles:
+                    self._log(
+                        "Single-flight guard: waiting for stable UIA output "
+                        f"({self._completion_stable_streak}/{self.config.output_stable_cycles})..."
+                    )
+                    time.sleep(self.config.poll_seconds)
+                    continue
+
                 self._awaiting_post_submit_activity = False
                 self._awaiting_post_submit_activity_seen = False
+                self._awaiting_post_submit_timeout_logged = False
                 self._awaiting_post_submit_started_at = 0.0
+                self._last_completion_fingerprint = None
+                self._completion_stable_streak = 0
                 self._idle_streak = 0
-                self._log("Single-flight transition complete (activity -> stable idle).")
+                self._log("Single-flight transition complete (activity -> stable idle + stable UIA output).")
                 time.sleep(self.config.poll_seconds)
                 continue
 
@@ -206,6 +239,9 @@ class PromptMonitor:
                 self._awaiting_post_submit_activity = True
                 self._awaiting_post_submit_started_at = time.monotonic()
                 self._awaiting_post_submit_activity_seen = self.config.dry_run
+                self._awaiting_post_submit_timeout_logged = False
+                self._last_completion_fingerprint = None
+                self._completion_stable_streak = 0
                 self._log(f"Submitted {self._submitted}/{self.config.max_prompts}.")
             else:
                 self._log("Submit attempt failed. Retrying...")
@@ -368,6 +404,55 @@ class PromptMonitor:
             if text:
                 occurrences += text.lower().count(keyword)
         return occurrences
+
+    def _chat_output_fingerprint(self, window: Any) -> tuple[str, ...] | None:
+        if Desktop is None:
+            return None
+
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return None
+
+        try:
+            controls = target.descendants()
+        except Exception:
+            return None
+
+        markers: list[str] = []
+        for ctrl in controls:
+            try:
+                text = re.sub(r"\s+", " ", (ctrl.window_text() or "").strip())
+            except Exception:
+                continue
+            if not text:
+                continue
+
+            is_visible = getattr(ctrl, "is_visible", None)
+            if callable(is_visible):
+                with suppress(Exception):
+                    if not bool(is_visible()):
+                        continue
+
+            try:
+                rect = ctrl.rectangle()
+            except Exception:
+                rect = None
+            if rect is not None:
+                rect_width = int(getattr(rect, "right", 0)) - int(getattr(rect, "left", 0))
+                rect_height = int(getattr(rect, "bottom", 0)) - int(getattr(rect, "top", 0))
+                if rect_width <= 0 or rect_height <= 0:
+                    continue
+
+            marker_text = self._build_control_marker_text(ctrl)
+            if self._is_disallowed_input_target(marker_text):
+                continue
+
+            markers.append(f"{marker_text}|{text}")
+
+        if not markers:
+            return None
+        return tuple(markers[-200:])
 
     def _template_detect_stop_button(self, window: Any) -> bool:
         if not self.config.stop_templates:
@@ -1219,6 +1304,7 @@ class PromptMonitor:
         self._log("Copilot Chat auto-trigger started.")
         self._log(f"Configured submissions: {self.config.max_prompts} (limit: 512).")
         self._log(f"Single-flight timeout: {self.config.single_flight_timeout_seconds:.1f}s.")
+        self._log(f"Output stable cycles: {self.config.output_stable_cycles}.")
         if self.config.stop_templates:
             self._log(
                 f"Template variants: {len(self.config.stop_templates)}; "
@@ -1359,7 +1445,13 @@ def parse_args(argv: list[str]) -> Config:
         "--single-flight-timeout-seconds",
         type=float,
         default=45.0,
-        help="How long to wait for post-submit activity edge before timeout fallback.",
+        help="How long to wait before logging that the post-submit activity edge has not appeared.",
+    )
+    parser.add_argument(
+        "--output-stable-cycles",
+        type=int,
+        default=2,
+        help="Require this many unchanged UIA output snapshots after activity stops before next submit.",
     )
     parser.add_argument(
         "--post-submit-activity-wait-seconds",
@@ -1501,6 +1593,9 @@ def parse_args(argv: list[str]) -> Config:
     if args.single_flight_timeout_seconds < 0:
         parser.error("--single-flight-timeout-seconds must be >= 0.")
 
+    if args.output_stable_cycles < 1:
+        parser.error("--output-stable-cycles must be >= 1.")
+
     if args.post_submit_activity_wait_seconds < 0:
         parser.error("--post-submit-activity-wait-seconds must be >= 0.")
 
@@ -1603,6 +1698,7 @@ def parse_args(argv: list[str]) -> Config:
         submit_cooldown_seconds=args.submit_cooldown_seconds,
         no_activity_backoff_seconds=args.no_activity_backoff_seconds,
         single_flight_timeout_seconds=args.single_flight_timeout_seconds,
+        output_stable_cycles=args.output_stable_cycles,
         post_submit_activity_wait_seconds=args.post_submit_activity_wait_seconds,
         submit_enter_delay_seconds=args.submit_enter_delay_seconds,
         vs_title_regex=vs_title_regex,

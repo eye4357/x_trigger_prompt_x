@@ -7,7 +7,9 @@ param(
     [ValidateRange(1, 512)]
     [int]$DefaultMaxPrompts = 128,
     [ValidateRange(0.0, 3600.0)]
-    [double]$DefaultSingleFlightTimeoutSeconds = 45.0
+    [double]$DefaultSingleFlightTimeoutSeconds = 45.0,
+    [ValidateRange(1, 20)]
+    [int]$DefaultOutputStableCycles = 2
 )
 
 Set-StrictMode -Version Latest
@@ -163,6 +165,7 @@ function New-OptionsFromEnvironment {
         Python = $env:XTP_RUN_PYTHON
         MaxPrompts = [int]$env:XTP_RUN_MAX_PROMPTS
         SingleFlightTimeoutSeconds = [double]$env:XTP_RUN_SINGLE_FLIGHT_TIMEOUT
+        OutputStableCycles = [int]$env:XTP_RUN_OUTPUT_STABLE_CYCLES
         ProfilePath = $env:XTP_RUN_PROFILE
         DisableUiaScan = ConvertTo-EnvBool $env:XTP_RUN_DISABLE_UIA
         LogCentroidDebug = ConvertTo-EnvBool $env:XTP_RUN_LOG_CENTROID
@@ -172,7 +175,7 @@ function New-OptionsFromEnvironment {
 }
 
 function Clear-LauncherEnvironment {
-    Remove-Item Env:XTP_RUN_PYTHON, Env:XTP_RUN_MAX_PROMPTS, Env:XTP_RUN_SINGLE_FLIGHT_TIMEOUT, Env:XTP_RUN_PROFILE, Env:XTP_RUN_DISABLE_UIA, Env:XTP_RUN_LOG_CENTROID, Env:XTP_RUN_DRY_RUN -ErrorAction SilentlyContinue
+    Remove-Item Env:XTP_RUN_PYTHON, Env:XTP_RUN_MAX_PROMPTS, Env:XTP_RUN_SINGLE_FLIGHT_TIMEOUT, Env:XTP_RUN_OUTPUT_STABLE_CYCLES, Env:XTP_RUN_PROFILE, Env:XTP_RUN_DISABLE_UIA, Env:XTP_RUN_LOG_CENTROID, Env:XTP_RUN_DRY_RUN -ErrorAction SilentlyContinue
 }
 
 function Assert-RequiredFiles {
@@ -233,6 +236,8 @@ function Invoke-TriggerPrompt {
         [string]$Options.MaxPrompts,
         "--single-flight-timeout-seconds",
         [string]$Options.SingleFlightTimeoutSeconds,
+        "--output-stable-cycles",
+        [string]$Options.OutputStableCycles,
         "--profile-file",
         $Options.ProfilePath
     )
@@ -253,6 +258,7 @@ function Invoke-TriggerPrompt {
     Write-Host "Profile: $($Options.ProfilePath)"
     Write-Host "Max prompts: $($Options.MaxPrompts)"
     Write-Host "Single-flight timeout: $($Options.SingleFlightTimeoutSeconds)s"
+    Write-Host "Output stable cycles: $($Options.OutputStableCycles)"
     Write-Host "UIA scan: $(if ($Options.DisableUiaScan) { 'disabled' } else { 'enabled' })"
     Write-Host "Centroid debug: $(if ($Options.LogCentroidDebug) { 'enabled' } else { 'disabled' })"
     Write-Host "Dry run: $(if ($Options.DryRun) { 'yes' } else { 'no' })"
@@ -275,6 +281,7 @@ function Start-TriggerWindow {
     $env:XTP_RUN_PYTHON = $Options.Python
     $env:XTP_RUN_MAX_PROMPTS = [string]$Options.MaxPrompts
     $env:XTP_RUN_SINGLE_FLIGHT_TIMEOUT = [string]$Options.SingleFlightTimeoutSeconds
+    $env:XTP_RUN_OUTPUT_STABLE_CYCLES = [string]$Options.OutputStableCycles
     $env:XTP_RUN_PROFILE = $Options.ProfilePath
     $env:XTP_RUN_DISABLE_UIA = if ($Options.DisableUiaScan) { "1" } else { "0" }
     $env:XTP_RUN_LOG_CENTROID = if ($Options.LogCentroidDebug) { "1" } else { "0" }
@@ -318,6 +325,7 @@ Write-Host ""
 $python = Resolve-LauncherPython
 $maxPrompts = Read-IntDefault "Max prompt submissions" $DefaultMaxPrompts 1 512
 $singleFlightTimeoutSeconds = Read-FloatDefault "Single-flight timeout seconds" $DefaultSingleFlightTimeoutSeconds 0 3600
+$outputStableCycles = Read-IntDefault "Unchanged UIA output snapshots before next submit" $DefaultOutputStableCycles 1 20
 $profileInput = Read-TextDefault "Profile file" ".\trigger_profile.json"
 $profilePath = Resolve-ProfilePath $profileInput
 $calibrateIfMissing = Read-YesNoDefault "If the profile is missing, run calibration first?" $true
@@ -330,6 +338,7 @@ $options = [pscustomobject]@{
     Python = $python
     MaxPrompts = $maxPrompts
     SingleFlightTimeoutSeconds = $singleFlightTimeoutSeconds
+    OutputStableCycles = $outputStableCycles
     ProfilePath = $profilePath
     DisableUiaScan = $disableUiaScan
     LogCentroidDebug = $logCentroidDebug
