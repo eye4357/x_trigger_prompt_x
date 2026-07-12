@@ -102,6 +102,7 @@ Stacked submits, where a new prompt fires before the prior response fully settle
 
 - Keep single-flight timeout at the default `45` unless you are explicitly tuning for slow/noisy activity edges.
 - If the monitor appears stuck after a valid submit transition, raise single-flight timeout gradually (for example `60-90`) before changing other guardrails.
+- Check the end-of-run `Single-flight summary: activity_edges=..., timeout_fallbacks=...` line to see whether transitions are mostly edge-detected or timeout-driven.
 
 Misaligned click target:
 

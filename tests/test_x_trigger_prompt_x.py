@@ -1681,6 +1681,8 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             mon.run()
 
         self.assertEqual(submit_mock.call_count, 2)
+        self.assertEqual(mon._single_flight_activity_edges, 1)
+        self.assertEqual(mon._single_flight_timeout_fallbacks, 0)
 
     def test_run_single_flight_timeout_allows_resubmit_without_activity_edge(self) -> None:
         cfg = tool.Config(
@@ -1705,6 +1707,8 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             mon.run()
 
         self.assertEqual(submit_mock.call_count, 2)
+        self.assertEqual(mon._single_flight_activity_edges, 0)
+        self.assertEqual(mon._single_flight_timeout_fallbacks, 1)
 
     def test_print_header_logs_single_flight_timeout(self) -> None:
         cfg = tool.Config(prompt="x", max_prompts=3, single_flight_timeout_seconds=60.0)

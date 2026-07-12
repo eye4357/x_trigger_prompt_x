@@ -114,6 +114,8 @@ class PromptMonitor:
         self._awaiting_post_submit_activity = False
         self._awaiting_post_submit_started_at = 0.0
         self._awaiting_post_submit_activity_seen = False
+        self._single_flight_activity_edges = 0
+        self._single_flight_timeout_fallbacks = 0
 
     def request_stop(self, *_args: object) -> None:
         self._stop_requested = True
@@ -135,7 +137,8 @@ class PromptMonitor:
             active_source = self._chat_active_source(window)
             if active_source:
                 self._idle_streak = 0
-                if self._awaiting_post_submit_activity:
+                if self._awaiting_post_submit_activity and not self._awaiting_post_submit_activity_seen:
+                    self._single_flight_activity_edges += 1
                     self._awaiting_post_submit_activity_seen = True
                 self._log(f"Chat active (stop button detected via {active_source}). Waiting...")
                 time.sleep(self.config.poll_seconds)
@@ -157,6 +160,7 @@ class PromptMonitor:
                     "Single-flight activity edge timeout reached; requiring stable idle transition "
                     "before next submit."
                 )
+                self._single_flight_timeout_fallbacks += 1
                 self._awaiting_post_submit_activity_seen = True
 
             if self._awaiting_post_submit_activity and self._awaiting_post_submit_activity_seen:
@@ -216,6 +220,11 @@ class PromptMonitor:
 
             time.sleep(sleep_seconds)
 
+        self._log(
+            "Single-flight summary: "
+            f"activity_edges={self._single_flight_activity_edges}, "
+            f"timeout_fallbacks={self._single_flight_timeout_fallbacks}."
+        )
         self._log("Finished.")
         return 0
 
