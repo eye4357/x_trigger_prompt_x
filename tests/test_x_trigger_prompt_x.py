@@ -1906,6 +1906,38 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertEqual(mon._single_flight_activity_edges, 0)
         self.assertEqual(mon._single_flight_timeout_fallbacks, 1)
 
+    def test_run_single_flight_timeout_fallback_logs_once_per_pending_transition(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            max_prompts=2,
+            poll_seconds=0.0,
+            idle_stable_cycles=1,
+            submit_cooldown_seconds=0.0,
+            no_activity_backoff_seconds=0.0,
+            single_flight_timeout_seconds=0.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+        sleep_calls = {"count": 0}
+
+        def stop_after_multiple_guard_cycles(_seconds: float) -> None:
+            sleep_calls["count"] += 1
+            if sleep_calls["count"] >= 4 and mon._awaiting_post_submit_timeout_logged:
+                mon.request_stop()
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_should_halt", return_value=False),
+            patch.object(mon, "_chat_active_source", return_value=None),
+            patch.object(mon, "_submit_prompt", return_value=True),
+            patch("x_trigger_prompt_x.time.sleep", side_effect=stop_after_multiple_guard_cycles),
+        ):
+            mon.run()
+
+        self.assertGreaterEqual(sleep_calls["count"], 4)
+        self.assertEqual(mon._single_flight_activity_edges, 0)
+        self.assertEqual(mon._single_flight_timeout_fallbacks, 1)
+
     def test_print_header_logs_single_flight_timeout(self) -> None:
         cfg = tool.Config(prompt="x", max_prompts=3, single_flight_timeout_seconds=60.0)
         mon = tool.PromptMonitor(cfg)
