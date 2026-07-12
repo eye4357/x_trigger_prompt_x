@@ -196,6 +196,104 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertTrue(found)
         self.assertEqual(calls, ["a.png", "b.png"])
 
+    def test_uia_stop_button_ignores_hidden_stale_controls(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 10
+            top = 10
+            right = 30
+            bottom = 30
+
+        class HiddenStopButton:
+            @staticmethod
+            def window_text() -> str:
+                return "Stop"
+
+            @staticmethod
+            def is_visible() -> bool:
+                return False
+
+            @staticmethod
+            def is_enabled() -> bool:
+                return True
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                if control_type == "Button":
+                    return [HiddenStopButton()]
+                return []
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertFalse(mon._uia_detect_stop_button(SimpleNamespace()))
+
+    def test_uia_stop_button_accepts_visible_enabled_controls(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+
+        class FakeRect:
+            left = 10
+            top = 10
+            right = 30
+            bottom = 30
+
+        class VisibleStopButton:
+            @staticmethod
+            def window_text() -> str:
+                return "Stop"
+
+            @staticmethod
+            def is_visible() -> bool:
+                return True
+
+            @staticmethod
+            def is_enabled() -> bool:
+                return True
+
+            @staticmethod
+            def rectangle() -> FakeRect:
+                return FakeRect()
+
+        class FakeTarget:
+            @staticmethod
+            def exists(timeout: float = 0.0) -> bool:
+                return True
+
+            @staticmethod
+            def descendants(control_type: str | None = None) -> list[object]:
+                if control_type == "Button":
+                    return [VisibleStopButton()]
+                return []
+
+        class FakeDesktop:
+            def __init__(self, backend: str = "uia") -> None:
+                self.backend = backend
+
+            @staticmethod
+            def window(title_re: str | None = None) -> FakeTarget:
+                return FakeTarget()
+
+        with patch.object(tool, "Desktop", FakeDesktop):
+            self.assertTrue(mon._uia_detect_stop_button(SimpleNamespace()))
+
     def test_find_vscode_window_prefers_active(self) -> None:
         w1 = SimpleNamespace(title="Visual Studio Code", width=500, height=400)
         w2 = SimpleNamespace(title="Visual Studio Code", width=1200, height=900)

@@ -262,9 +262,34 @@ class PromptMonitor:
                 continue
             if not name:
                 continue
-            if any(p.search(name) for p in ACTIVE_NAME_PATTERNS):
+            if any(p.search(name) for p in ACTIVE_NAME_PATTERNS) and self._uia_stop_button_candidate_is_active(btn):
                 return True
         return False
+
+    @staticmethod
+    def _uia_stop_button_candidate_is_active(btn: Any) -> bool:
+        try:
+            is_visible = getattr(btn, "is_visible", None)
+            if callable(is_visible) and not bool(is_visible()):
+                return False
+        except Exception:
+            return False
+
+        try:
+            is_enabled = getattr(btn, "is_enabled", None)
+            if callable(is_enabled) and not bool(is_enabled()):
+                return False
+        except Exception:
+            return False
+
+        try:
+            rect = btn.rectangle()
+        except Exception:
+            return True
+
+        rect_width = int(getattr(rect, "right", 0)) - int(getattr(rect, "left", 0))
+        rect_height = int(getattr(rect, "bottom", 0)) - int(getattr(rect, "top", 0))
+        return rect_width > 0 and rect_height > 0
 
     def _uia_count_halt_keyword_occurrences(self, window: Any) -> int:
         app = Desktop(backend="uia")
