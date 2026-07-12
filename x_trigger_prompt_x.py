@@ -1209,6 +1209,7 @@ class PromptMonitor:
     def _print_header(self) -> None:
         self._log("Copilot Chat auto-trigger started.")
         self._log(f"Configured submissions: {self.config.max_prompts} (limit: 512).")
+        self._log(f"Single-flight timeout: {self.config.single_flight_timeout_seconds:.1f}s.")
         if self.config.stop_templates:
             self._log(
                 f"Template variants: {len(self.config.stop_templates)}; "

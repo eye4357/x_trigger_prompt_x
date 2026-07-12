@@ -51,7 +51,8 @@ For recurring use, the usual defaults are enough: `128` prompts, single-flight t
 1. Finds a matching VS Code window.
 2. Detects whether Copilot Chat is active or idle.
 3. When idle, focuses the chat composer, verifies the target is not terminal/output/debug-console, clears the composer, pastes Prompt a1, and submits it.
-4. Repeats until `--max-prompts` is reached, the halt keyword appears, or the operator interrupts with `Ctrl+C`.
+4. Enforces single-flight transitions so each submit must complete its response transition before the next submit can fire.
+5. Repeats until `--max-prompts` is reached, the halt keyword appears, or the operator interrupts with `Ctrl+C`.
 
 Calibration is handled by `calibrate_trigger_profile.py`. The generated profile can contain both absolute and ratio click coordinates; runtime normalizes that profile to ratio coordinates for portability.
 
