@@ -200,8 +200,13 @@ cython_debug/
 #   and can be added to the global gitignore or merged into this file. However, if you prefer, 
 #   you could uncomment the following to ignore the entire vscode folder
 # .vscode/
+.vscode/tasks.json
 # Temporary file for partial code execution
 tempCodeRunnerFile.py
+
+# Local operator calibration/runtime artifacts
+stop_button_template.png
+trigger_profile.json
 
 # Ruff stuff:
 .ruff_cache/
