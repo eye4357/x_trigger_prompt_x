@@ -261,7 +261,7 @@ class PromptMonitor:
                 self._log("Submit attempt failed. Retrying...")
 
             sleep_seconds = self.config.submit_cooldown_seconds
-            if not self._last_submit_saw_activity:
+            if not self._last_submit_saw_activity and not self.config.dry_run:
                 sleep_seconds = max(sleep_seconds, self.config.no_activity_backoff_seconds)
                 self._log(
                     "No post-submit activity detected; applying extended backoff "
@@ -649,7 +649,6 @@ class PromptMonitor:
                 time.sleep(0.15)
 
         if self.config.dry_run:
-            self._last_submit_saw_activity = True
             return True
 
         if not self.config.allow_unsafe_hotkey_focus and not self._pre_paste_guard(window, click_xy, "before_clear"):

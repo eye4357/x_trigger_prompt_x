@@ -1818,7 +1818,36 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             mon.run()
 
         self.assertEqual(submit_mock.call_count, 2)
+        self.assertEqual(mon._single_flight_activity_edges, 0)
+        self.assertEqual(mon._single_flight_timeout_fallbacks, 0)
         fingerprint_mock.assert_not_called()
+
+    def test_run_single_flight_dry_run_skips_extended_no_activity_backoff_log(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            max_prompts=1,
+            poll_seconds=0.0,
+            idle_stable_cycles=1,
+            submit_cooldown_seconds=0.0,
+            no_activity_backoff_seconds=8.0,
+            dry_run=True,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_should_halt", return_value=False),
+            patch.object(mon, "_chat_active_source", return_value=None),
+            patch.object(mon, "_submit_prompt", return_value=True),
+            patch.object(mon, "_log") as log_mock,
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+        ):
+            mon.run()
+
+        messages = [call.args[0] for call in log_mock.call_args_list]
+        self.assertTrue(any(msg.startswith("Submitted 1/1.") for msg in messages))
+        self.assertFalse(any("No post-submit activity detected" in msg for msg in messages))
 
     def test_run_single_flight_timeout_does_not_resubmit_without_activity_edge(self) -> None:
         cfg = tool.Config(
