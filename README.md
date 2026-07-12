@@ -97,6 +97,11 @@ False active detection, where the launcher keeps waiting even though chat is idl
 - Recalibrate if the stop-button template is stale or was captured while chat was idle.
 - During stop-button calibration, start a Copilot response first, then hover over the real active Stop button before pressing Enter.
 
+Stacked submits, where a new prompt fires before the prior response fully settles:
+
+- Keep single-flight timeout at the default `45` unless you are explicitly tuning for slow/noisy activity edges.
+- If the monitor appears stuck after a valid submit transition, raise single-flight timeout gradually (for example `60-90`) before changing other guardrails.
+
 Misaligned click target:
 
 - Re-run calibration from the launcher when prompted.
