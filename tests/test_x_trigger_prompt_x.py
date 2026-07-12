@@ -96,6 +96,14 @@ class ParseArgsTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             tool.parse_args(["--prompt", "hello", "--output-stable-cycles", "0"])
 
+    def test_vscode_memory_limit_mb_must_be_non_negative(self) -> None:
+        with self.assertRaises(SystemExit):
+            tool.parse_args(["--prompt", "hello", "--vscode-memory-limit-mb", "-1"])
+
+    def test_vscode_memory_limit_mb_flag_sets_config(self) -> None:
+        cfg = tool.parse_args(["--prompt", "hello", "--vscode-memory-limit-mb", "2048"])
+        self.assertEqual(cfg.vscode_memory_limit_mb, 2048)
+
     def test_completion_keyword_and_stop_icon_bypass_flags_set_config(self) -> None:
         cfg = tool.parse_args(
             [
@@ -1732,6 +1740,40 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertEqual(submit_mock.call_count, 2)
         self.assertEqual(mon._single_flight_activity_edges, 1)
         self.assertEqual(mon._single_flight_timeout_fallbacks, 0)
+
+    def test_run_stops_before_submit_when_vscode_memory_limit_exceeded(self) -> None:
+        cfg = tool.Config(prompt="x", max_prompts=1, poll_seconds=0.0, vscode_memory_limit_mb=1024)
+        mon = tool.PromptMonitor(cfg)
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_window_process_working_set_mb", return_value=2048.0),
+            patch.object(mon, "_submit_prompt", return_value=True) as submit_mock,
+            patch.object(mon, "_log") as log_mock,
+        ):
+            mon.run()
+
+        submit_mock.assert_not_called()
+        messages = [call.args[0] for call in log_mock.call_args_list]
+        self.assertTrue(any("VS Code memory guard tripped" in msg for msg in messages))
+
+    def test_run_ignores_memory_guard_when_disabled(self) -> None:
+        cfg = tool.Config(prompt="x", max_prompts=1, poll_seconds=0.0, idle_stable_cycles=1, vscode_memory_limit_mb=0)
+        mon = tool.PromptMonitor(cfg)
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_window_process_working_set_mb", return_value=999999.0),
+            patch.object(mon, "_should_halt", return_value=False),
+            patch.object(mon, "_chat_active_source", return_value=None),
+            patch.object(mon, "_submit_prompt", return_value=True) as submit_mock,
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+        ):
+            mon.run()
+
+        self.assertEqual(submit_mock.call_count, 1)
 
     def test_run_single_flight_waits_while_output_changes_after_activity_edge(self) -> None:
         cfg = tool.Config(

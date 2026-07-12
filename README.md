@@ -20,6 +20,7 @@ The Q&A covers the runtime choices that used to be scattered across README examp
 
 - max prompt submissions, default `128`
 - unchanged UIA output snapshots before next submit, default `2`
+- VS Code window-process memory limit, default `3072` MB, `0` disables
 - profile path, default `.\trigger_profile.json`
 - whether to select a fresh chat input centroid before the run, default yes
 - whether to run calibration if the profile is missing
@@ -43,17 +44,18 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_trigger_prompt.ps1
 4. Accept the defaults for normal deterministic glidepath execution.
 5. If the profile is missing, answer yes to calibration and follow the on-screen calibration prompts.
 
-For recurring use, the usual defaults are enough: `128` prompts, `2` unchanged UIA output snapshots, fresh chat input centroid selection, `.\trigger_profile.json`, UIA scan enabled, centroid debug off, dry run off, same window.
+For recurring use, the usual defaults are enough: `128` prompts, `2` unchanged UIA output snapshots, `3072` MB VS Code memory limit, fresh chat input centroid selection, `.\trigger_profile.json`, UIA scan enabled, centroid debug off, dry run off, same window.
 
 ## What The Tool Does
 
 `run_trigger_prompt.ps1` calls `x_trigger_prompt_x.py`, which:
 
 1. Finds a matching VS Code window.
-2. Detects whether Copilot Chat is active or idle.
-3. When idle, focuses the chat composer, verifies the target is not terminal/output/debug-console, clears the composer, pastes Prompt a1, and submits it.
-4. After each submit, waits for a new response ending with `READY FOR MORE`, then requires stable idle and unchanged UIA output snapshots before another submit can fire.
-5. Repeats until `--max-prompts` is reached, the halt keyword appears, or the operator interrupts with `Ctrl+C`.
+2. Checks the matching VS Code window process memory and stops before another submit if it is at or above the configured memory limit.
+3. Detects whether Copilot Chat is active or idle.
+4. When idle, focuses the chat composer, verifies the target is not terminal/output/debug-console, clears the composer, pastes Prompt a1, and submits it.
+5. After each submit, waits for a new response ending with `READY FOR MORE`, then requires stable idle and unchanged UIA output snapshots before another submit can fire.
+6. Repeats until `--max-prompts` is reached, the halt keyword appears, the VS Code memory guard trips, or the operator interrupts with `Ctrl+C`.
 
 Calibration is handled by `calibrate_trigger_profile.py`. The generated profile can contain both absolute and ratio click coordinates; runtime normalizes that profile to ratio coordinates for portability.
 
@@ -119,6 +121,12 @@ Blocked submit with `submit_decision=paste_blocked`:
 - Read the logged reason; terminal/output/debug-console ancestry is intentionally blocked.
 - Recalibrate so the profile points at the chat composer.
 
+VS Code terminates with `reason: 'oom'`:
+
+- Keep the launcher memory limit enabled; the default is `3072` MB for the matched VS Code window process.
+- Lower the limit if VS Code is still unstable on your machine, or raise it only if you have enough RAM and the window remains responsive.
+- Use `0` only for manual debugging because it disables the OOM protection guard.
+
 ## Development Checks
 
 Run the full local quality gate:
@@ -150,6 +158,7 @@ Normal operation should use `run_trigger_prompt.ps1`. The Python flags remain av
 - `--submit-cooldown-seconds 1.5`
 - `--single-flight-timeout-seconds 45.0`
 - `--output-stable-cycles 2`
+- `--vscode-memory-limit-mb 3072` (`0` disables)
 - `--completion-keyword "READY FOR MORE"`
 - `--disable-active-detection`
 - `--ignore-stop-templates`

@@ -28,7 +28,7 @@ import time
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 # Runtime dependencies are loaded on-demand to keep import-time behavior CI-safe.
 pyautogui: Any = None
@@ -79,6 +79,7 @@ class Config:
     single_flight_timeout_seconds: float = 45.0
     output_stable_cycles: int = 2
     post_submit_activity_wait_seconds: float = 2.5
+    vscode_memory_limit_mb: int = 3072
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
     reuse_chat_focus_hotkey: bool = False
@@ -136,6 +137,9 @@ class PromptMonitor:
                 self._log("No matching VS Code window found. Retrying...")
                 time.sleep(self.config.poll_seconds)
                 continue
+
+            if self._vscode_memory_limit_exceeded(window):
+                break
 
             if self._should_halt(window):
                 self._log("Halt keyword detected in chat output. Ending monitor early.")
@@ -365,6 +369,85 @@ class PromptMonitor:
         width = max(int(window.width), 1)
         height = max(int(window.height), 1)
         return left, top, width, height
+
+    def _vscode_memory_limit_exceeded(self, window: Any) -> bool:
+        if self.config.vscode_memory_limit_mb <= 0:
+            return False
+
+        memory_mb = self._window_process_working_set_mb(window)
+        if memory_mb is None:
+            return False
+        if memory_mb < self.config.vscode_memory_limit_mb:
+            return False
+
+        self._log(
+            "VS Code memory guard tripped: "
+            f"window_process_working_set={memory_mb:.0f}MB "
+            f"limit={self.config.vscode_memory_limit_mb}MB. "
+            "Stopping before another prompt to reduce OOM crash risk."
+        )
+        return True
+
+    @staticmethod
+    def _window_process_working_set_mb(window: Any) -> float | None:
+        if sys.platform != "win32":
+            return None
+
+        hwnd = getattr(window, "_hWnd", None) or getattr(window, "hWnd", None)
+        if not hwnd:
+            return None
+
+        try:
+            import ctypes
+            from ctypes import wintypes
+        except Exception:
+            return None
+
+        class ProcessMemoryCounters(ctypes.Structure):
+            _fields_: ClassVar[list[tuple[str, Any]]] = [
+                ("cb", wintypes.DWORD),
+                ("PageFaultCount", wintypes.DWORD),
+                ("PeakWorkingSetSize", ctypes.c_size_t),
+                ("WorkingSetSize", ctypes.c_size_t),
+                ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                ("PagefileUsage", ctypes.c_size_t),
+                ("PeakPagefileUsage", ctypes.c_size_t),
+            ]
+
+        pid = wintypes.DWORD()
+        try:
+            ctypes.windll.user32.GetWindowThreadProcessId(wintypes.HWND(int(hwnd)), ctypes.byref(pid))
+            if not pid.value:
+                return None
+
+            process_query_information = 0x0400
+            process_vm_read = 0x0010
+            handle = ctypes.windll.kernel32.OpenProcess(
+                process_query_information | process_vm_read,
+                False,
+                pid.value,
+            )
+            if not handle:
+                return None
+
+            try:
+                counters = ProcessMemoryCounters()
+                counters.cb = ctypes.sizeof(ProcessMemoryCounters)
+                ok = ctypes.windll.psapi.GetProcessMemoryInfo(
+                    handle,
+                    ctypes.byref(counters),
+                    counters.cb,
+                )
+                if not ok:
+                    return None
+                return float(counters.WorkingSetSize) / (1024.0 * 1024.0)
+            finally:
+                ctypes.windll.kernel32.CloseHandle(handle)
+        except Exception:
+            return None
 
     def _is_chat_active(self, window: Any) -> bool:
         return self._chat_active_source(window) is not None
@@ -1538,6 +1621,12 @@ def parse_args(argv: list[str]) -> Config:
         help="How long to wait for active-state evidence after submit.",
     )
     parser.add_argument(
+        "--vscode-memory-limit-mb",
+        type=int,
+        default=3072,
+        help="Stop before submitting when the matched VS Code window process reaches this working-set MB; 0 disables.",
+    )
+    parser.add_argument(
         "--submit-enter-delay-seconds",
         type=float,
         default=0.15,
@@ -1692,6 +1781,9 @@ def parse_args(argv: list[str]) -> Config:
     if args.post_submit_activity_wait_seconds < 0:
         parser.error("--post-submit-activity-wait-seconds must be >= 0.")
 
+    if args.vscode_memory_limit_mb < 0:
+        parser.error("--vscode-memory-limit-mb must be >= 0.")
+
     if args.template_confidence < 0.1 or args.template_confidence > 1.0:
         parser.error("--template-confidence must be between 0.1 and 1.0.")
 
@@ -1793,6 +1885,7 @@ def parse_args(argv: list[str]) -> Config:
         single_flight_timeout_seconds=args.single_flight_timeout_seconds,
         output_stable_cycles=args.output_stable_cycles,
         post_submit_activity_wait_seconds=args.post_submit_activity_wait_seconds,
+        vscode_memory_limit_mb=args.vscode_memory_limit_mb,
         submit_enter_delay_seconds=args.submit_enter_delay_seconds,
         vs_title_regex=vs_title_regex,
         chat_focus_hotkey=chat_focus_hotkey,
