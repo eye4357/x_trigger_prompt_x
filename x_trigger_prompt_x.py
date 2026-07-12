@@ -88,8 +88,11 @@ class Config:
     template_confidence: float = 0.9
     template_scales: tuple[float, ...] = (0.85, 0.92, 1.0, 1.08, 1.15)
     use_uia_scan: bool = True
+    disable_active_detection: bool = False
+    ignore_stop_templates: bool = False
     halt_keyword: str = "HALT NOW"
     disable_halt_keyword_scan: bool = False
+    completion_keyword: str = "READY FOR MORE"
     input_click_x: int | None = None
     input_click_y: int | None = None
     input_click_x_ratio: float | None = None
@@ -109,6 +112,7 @@ class PromptMonitor:
         self._stop_requested = False
         self._submitted = 0
         self._halt_keyword_baseline: int | None = None
+        self._completion_keyword_baseline: int | None = None
         self._idle_streak = 0
         self._chat_focus_hotkey_used = False
         self._last_submit_saw_activity = False
@@ -136,6 +140,17 @@ class PromptMonitor:
             if self._should_halt(window):
                 self._log("Halt keyword detected in chat output. Ending monitor early.")
                 break
+
+            if (
+                self._awaiting_post_submit_activity
+                and not self._awaiting_post_submit_activity_seen
+                and self._completion_keyword_detected(window)
+            ):
+                self._awaiting_post_submit_activity_seen = True
+                self._awaiting_post_submit_timeout_logged = False
+                self._last_completion_fingerprint = None
+                self._completion_stable_streak = 0
+                self._log(f"Completion keyword detected: {self.config.completion_keyword!r}.")
 
             now = time.monotonic()
             active_source = self._chat_active_source(window)
@@ -301,6 +316,24 @@ class PromptMonitor:
 
         return occurrences > self._halt_keyword_baseline
 
+    def _completion_keyword_detected(self, window: Any) -> bool:
+        keyword = self.config.completion_keyword.strip()
+        if not keyword:
+            return False
+        if Desktop is None:
+            return False
+
+        try:
+            occurrences = self._uia_count_text_suffix_occurrences(keyword)
+        except Exception:
+            return False
+
+        if self._completion_keyword_baseline is None:
+            self._completion_keyword_baseline = occurrences
+            return False
+
+        return occurrences > self._completion_keyword_baseline
+
     def _find_vscode_window(self) -> Any | None:
         pattern = re.compile(self.config.vs_title_regex, re.IGNORECASE)
         try:
@@ -337,6 +370,9 @@ class PromptMonitor:
         return self._chat_active_source(window) is not None
 
     def _chat_active_source(self, window: Any) -> str | None:
+        if self.config.disable_active_detection:
+            return None
+
         # When UIA is available and gives a clean negative, trust it over image matching.
         if self.config.use_uia_scan and Desktop is not None:
             try:
@@ -417,6 +453,28 @@ class PromptMonitor:
                 continue
             if text:
                 occurrences += text.lower().count(keyword)
+        return occurrences
+
+    def _uia_count_text_suffix_occurrences(self, keyword: str) -> int:
+        app = Desktop(backend="uia")
+        target = app.window(title_re=self.config.vs_title_regex)
+        if not target.exists(timeout=0.5):
+            return 0
+
+        keyword_normalized = re.sub(r"\s+", " ", keyword.strip()).casefold()
+        if not keyword_normalized:
+            return 0
+
+        occurrences = 0
+        for ctrl in target.descendants():
+            try:
+                text = re.sub(r"\s+", " ", (ctrl.window_text() or "").strip())
+            except Exception:
+                continue
+            if not text:
+                continue
+            if text.casefold().endswith(keyword_normalized):
+                occurrences += 1
         return occurrences
 
     def _chat_output_fingerprint(self, window: Any) -> tuple[str, ...] | None:
@@ -587,6 +645,13 @@ class PromptMonitor:
         if not self.config.disable_halt_keyword_scan and self.config.halt_keyword.strip() and Desktop is not None:
             with suppress(Exception):
                 self._halt_keyword_baseline = self._uia_count_halt_keyword_occurrences(window)
+
+        self._completion_keyword_baseline = None
+        if self.config.completion_keyword.strip() and Desktop is not None:
+            with suppress(Exception):
+                self._completion_keyword_baseline = self._uia_count_text_suffix_occurrences(
+                    self.config.completion_keyword
+                )
 
         with suppress(Exception):
             window.activate()
@@ -1539,6 +1604,16 @@ def parse_args(argv: list[str]) -> Config:
         help="Disable UI Automation scan for stop button names.",
     )
     parser.add_argument(
+        "--disable-active-detection",
+        action="store_true",
+        help="Disable stop-button active-state detection; rely on completion keyword and UIA output instead.",
+    )
+    parser.add_argument(
+        "--ignore-stop-templates",
+        action="store_true",
+        help="Ignore stop-template entries from CLI/profile instead of loading or validating them.",
+    )
+    parser.add_argument(
         "--halt-keyword",
         default="HALT NOW",
         help=(
@@ -1551,6 +1626,11 @@ def parse_args(argv: list[str]) -> Config:
         "--disable-halt-keyword-scan",
         action="store_true",
         help="Disable early-stop keyword detection.",
+    )
+    parser.add_argument(
+        "--completion-keyword",
+        default="READY FOR MORE",
+        help="Response-ending marker that allows the next prompt without relying on stop-icon detection.",
     )
     parser.add_argument(
         "--input-click-x",
@@ -1621,19 +1701,19 @@ def parse_args(argv: list[str]) -> Config:
         parser.error("Provide --prompt with non-empty content.")
 
     stop_templates: list[Path] = []
-    if args.stop_template:
+    if not args.ignore_stop_templates and args.stop_template:
         stop_templates.extend(args.stop_template)
 
     profile_templates = profile.get("stop_templates")
-    if not stop_templates and isinstance(profile_templates, list):
+    if not args.ignore_stop_templates and not stop_templates and isinstance(profile_templates, list):
         for item in profile_templates:
             if isinstance(item, str):
                 stop_templates.append(_resolve_profile_path(item, args.profile_file))
 
-    if not stop_templates and isinstance(profile.get("stop_template"), str):
+    if not args.ignore_stop_templates and not stop_templates and isinstance(profile.get("stop_template"), str):
         stop_templates.append(_resolve_profile_path(str(profile["stop_template"]), args.profile_file))
 
-    if args.stop_template_glob:
+    if not args.ignore_stop_templates and args.stop_template_glob:
         for pattern in args.stop_template_glob:
             for matched in sorted(glob.glob(pattern)):
                 stop_templates.append(Path(matched))
@@ -1723,8 +1803,11 @@ def parse_args(argv: list[str]) -> Config:
         template_confidence=template_confidence,
         template_scales=template_scales,
         use_uia_scan=not args.disable_uia_scan,
+        disable_active_detection=args.disable_active_detection,
+        ignore_stop_templates=args.ignore_stop_templates,
         halt_keyword=halt_keyword,
         disable_halt_keyword_scan=args.disable_halt_keyword_scan,
+        completion_keyword=args.completion_keyword.strip(),
         input_click_x=input_click_x,
         input_click_y=input_click_y,
         input_click_x_ratio=input_click_x_ratio,

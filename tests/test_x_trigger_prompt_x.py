@@ -96,6 +96,49 @@ class ParseArgsTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             tool.parse_args(["--prompt", "hello", "--output-stable-cycles", "0"])
 
+    def test_completion_keyword_and_stop_icon_bypass_flags_set_config(self) -> None:
+        cfg = tool.parse_args(
+            [
+                "--prompt",
+                "hello",
+                "--completion-keyword",
+                "READY FOR MORE",
+                "--disable-active-detection",
+                "--ignore-stop-templates",
+            ]
+        )
+
+        self.assertEqual(cfg.completion_keyword, "READY FOR MORE")
+        self.assertTrue(cfg.disable_active_detection)
+        self.assertTrue(cfg.ignore_stop_templates)
+
+    def test_ignore_stop_templates_skips_missing_profile_template_validation(self) -> None:
+        profile_data = {
+            "stop_template": "missing.png",
+            "stop_templates": ["missing.png"],
+            "input_click_x_ratio": 0.5,
+            "input_click_y_ratio": 0.75,
+        }
+
+        with (
+            patch.object(Path, "exists", autospec=True) as exists_mock,
+            patch.object(Path, "read_text", autospec=True, return_value=json.dumps(profile_data)),
+        ):
+            exists_mock.side_effect = lambda p: str(p).endswith("profile.json")
+            cfg = tool.parse_args(
+                [
+                    "--prompt",
+                    "hello",
+                    "--profile-file",
+                    "C:/tmp/profile.json",
+                    "--ignore-stop-templates",
+                ]
+            )
+
+        self.assertEqual(cfg.stop_templates, ())
+        self.assertEqual(cfg.input_click_x_ratio, 0.5)
+        self.assertEqual(cfg.input_click_y_ratio, 0.75)
+
 
 class HelperFunctionTests(unittest.TestCase):
     def test_parse_scales_csv_deduplicates_and_preserves_order(self) -> None:
@@ -1792,6 +1835,42 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         self.assertEqual(submit_mock.call_count, 2)
         self.assertEqual(mon._single_flight_activity_edges, 1)
+        self.assertEqual(mon._single_flight_timeout_fallbacks, 0)
+
+    def test_run_single_flight_completion_keyword_allows_without_activity_edge(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            max_prompts=2,
+            poll_seconds=0.0,
+            idle_stable_cycles=1,
+            output_stable_cycles=1,
+            submit_cooldown_seconds=0.0,
+            no_activity_backoff_seconds=0.0,
+            single_flight_timeout_seconds=999.0,
+            disable_active_detection=True,
+            completion_keyword="READY FOR MORE",
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        completion_seen = [True]
+
+        def next_completion(_window: object) -> bool:
+            return completion_seen.pop(0) if completion_seen else False
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_should_halt", return_value=False),
+            patch.object(mon, "_completion_keyword_detected", side_effect=next_completion),
+            patch.object(mon, "_chat_active_source", return_value=None),
+            patch.object(mon, "_chat_output_fingerprint", return_value=("done",)),
+            patch.object(mon, "_submit_prompt", return_value=True) as submit_mock,
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+        ):
+            mon.run()
+
+        self.assertEqual(submit_mock.call_count, 2)
+        self.assertEqual(mon._single_flight_activity_edges, 0)
         self.assertEqual(mon._single_flight_timeout_fallbacks, 0)
 
     def test_run_single_flight_dry_run_does_not_wait_for_output_snapshot(self) -> None:

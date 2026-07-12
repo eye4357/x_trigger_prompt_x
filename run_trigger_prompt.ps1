@@ -9,7 +9,8 @@ param(
     [ValidateRange(0.0, 3600.0)]
     [double]$DefaultSingleFlightTimeoutSeconds = 45.0,
     [ValidateRange(1, 20)]
-    [int]$DefaultOutputStableCycles = 2
+    [int]$DefaultOutputStableCycles = 2,
+    [bool]$DefaultCalibrateEveryRun = $true
 )
 
 Set-StrictMode -Version Latest
@@ -26,8 +27,10 @@ If you encounter work that genuinely requires 5.5-level reasoning (design decisi
 `0x48 0x41 0x4C 0x54 0x20 0x4E 0x4F 0x57`
 When escalation is required, decode that hex sequence and emit the decoded stop keyword as the final output string with no trailing text.
 If no escalation is needed, do not emit the decoded stop keyword.
+If no escalation is needed and the requested deterministic slice is complete, end your final response with the exact three-word marker READY FOR MORE, with no trailing text after that marker.
 '@
 $HaltKeyword = [Text.Encoding]::ASCII.GetString([byte[]](0x48, 0x41, 0x4C, 0x54, 0x20, 0x4E, 0x4F, 0x57))
+$CompletionKeyword = "READY FOR MORE"
 
 function Resolve-LauncherPython {
     if ($env:XTP_PYTHON -and (Test-Path $env:XTP_PYTHON)) {
@@ -190,26 +193,37 @@ function Assert-RequiredFiles {
 function Ensure-Profile {
     param(
         [pscustomobject]$Options,
-        [bool]$CalibrateIfMissing
+        [bool]$CalibrateIfMissing,
+        [bool]$CalibrateEveryRun
     )
 
-    if (Test-Path $Options.ProfilePath) {
+    if ((Test-Path $Options.ProfilePath) -and -not $CalibrateEveryRun) {
         return
     }
 
     if ($ValidateOnly) {
-        Write-Host "Validation only: profile does not exist yet and would be calibrated at $($Options.ProfilePath)." -ForegroundColor Yellow
+        if ($CalibrateEveryRun) {
+            Write-Host "Validation only: chat input centroid would be recalibrated at $($Options.ProfilePath)." -ForegroundColor Yellow
+        }
+        else {
+            Write-Host "Validation only: profile does not exist yet and would be calibrated at $($Options.ProfilePath)." -ForegroundColor Yellow
+        }
         return
     }
 
-    if (-not $CalibrateIfMissing) {
+    if (-not $CalibrateEveryRun -and -not $CalibrateIfMissing) {
         throw "Profile file does not exist: $($Options.ProfilePath)"
     }
 
-    Write-Host "Profile missing. Starting calibration..." -ForegroundColor Cyan
+    if ($CalibrateEveryRun) {
+        Write-Host "Selecting fresh chat input centroid..." -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "Profile missing. Starting calibration..." -ForegroundColor Cyan
+    }
     Push-Location $ScriptRoot
     try {
-        & $Options.Python $CalibratorScript
+        & $Options.Python $CalibratorScript --input-only --output-profile $Options.ProfilePath
         if ($LASTEXITCODE -ne 0) {
             throw "Calibration failed with exit code $LASTEXITCODE."
         }
@@ -232,6 +246,10 @@ function Invoke-TriggerPrompt {
         $PromptA1,
         "--halt-keyword",
         $HaltKeyword,
+        "--completion-keyword",
+        $CompletionKeyword,
+        "--disable-active-detection",
+        "--ignore-stop-templates",
         "--max-prompts",
         [string]$Options.MaxPrompts,
         "--single-flight-timeout-seconds",
@@ -259,6 +277,8 @@ function Invoke-TriggerPrompt {
     Write-Host "Max prompts: $($Options.MaxPrompts)"
     Write-Host "Single-flight timeout: $($Options.SingleFlightTimeoutSeconds)s"
     Write-Host "Output stable cycles: $($Options.OutputStableCycles)"
+    Write-Host "Completion keyword: $CompletionKeyword"
+    Write-Host "Stop icon active detection: disabled"
     Write-Host "UIA scan: $(if ($Options.DisableUiaScan) { 'disabled' } else { 'enabled' })"
     Write-Host "Centroid debug: $(if ($Options.LogCentroidDebug) { 'enabled' } else { 'disabled' })"
     Write-Host "Dry run: $(if ($Options.DryRun) { 'yes' } else { 'no' })"
@@ -328,6 +348,7 @@ $singleFlightTimeoutSeconds = Read-FloatDefault "Single-flight timeout seconds" 
 $outputStableCycles = Read-IntDefault "Unchanged UIA output snapshots before next submit" $DefaultOutputStableCycles 1 20
 $profileInput = Read-TextDefault "Profile file" ".\trigger_profile.json"
 $profilePath = Resolve-ProfilePath $profileInput
+$calibrateEveryRun = Read-YesNoDefault "Select chat input centroid before this run?" $DefaultCalibrateEveryRun
 $calibrateIfMissing = Read-YesNoDefault "If the profile is missing, run calibration first?" $true
 $disableUiaScan = Read-YesNoDefault "Disable UIA scan? Use this only when active-state detection is falsely stuck" $false
 $logCentroidDebug = Read-YesNoDefault "Enable centroid debug logging?" $false
@@ -346,7 +367,7 @@ $options = [pscustomobject]@{
     LaunchNewWindow = $launchNewWindow
 }
 
-Ensure-Profile $options $calibrateIfMissing
+Ensure-Profile $options $calibrateIfMissing $calibrateEveryRun
 
 if ($options.LaunchNewWindow -and -not $ValidateOnly) {
     Start-TriggerWindow $options

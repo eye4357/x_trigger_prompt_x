@@ -21,13 +21,14 @@ The Q&A covers the runtime choices that used to be scattered across README examp
 - max prompt submissions, default `128`
 - unchanged UIA output snapshots before next submit, default `2`
 - profile path, default `.\trigger_profile.json`
+- whether to select a fresh chat input centroid before the run, default yes
 - whether to run calibration if the profile is missing
 - whether to disable UI Automation scan when false active-state detection is stuck
 - whether to enable centroid debug logging
 - whether to run in `--dry-run` mode
 - whether to open a separate visible PowerShell window
 
-The embedded prompt is the full Prompt a1 deterministic 5.3 Codex payload. You do not need to copy prompt text into `$prompt` anymore.
+The embedded prompt is the full Prompt a1 deterministic 5.3 Codex payload. It also instructs normal non-escalation responses to end with `READY FOR MORE`, which the launcher uses as the next-submit completion signal. You do not need to copy prompt text into `$prompt` anymore.
 
 ## Recommended Flow
 
@@ -42,7 +43,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_trigger_prompt.ps1
 4. Accept the defaults for normal deterministic glidepath execution.
 5. If the profile is missing, answer yes to calibration and follow the on-screen calibration prompts.
 
-For recurring use, the usual defaults are enough: `128` prompts, `2` unchanged UIA output snapshots, `.\trigger_profile.json`, calibration if missing, UIA scan enabled, centroid debug off, dry run off, same window.
+For recurring use, the usual defaults are enough: `128` prompts, `2` unchanged UIA output snapshots, fresh chat input centroid selection, `.\trigger_profile.json`, UIA scan enabled, centroid debug off, dry run off, same window.
 
 ## What The Tool Does
 
@@ -51,10 +52,12 @@ For recurring use, the usual defaults are enough: `128` prompts, `2` unchanged U
 1. Finds a matching VS Code window.
 2. Detects whether Copilot Chat is active or idle.
 3. When idle, focuses the chat composer, verifies the target is not terminal/output/debug-console, clears the composer, pastes Prompt a1, and submits it.
-4. After each submit, waits for an active response edge, then requires stable idle and unchanged UIA output snapshots before another submit can fire.
+4. After each submit, waits for a new response ending with `READY FOR MORE`, then requires stable idle and unchanged UIA output snapshots before another submit can fire.
 5. Repeats until `--max-prompts` is reached, the halt keyword appears, or the operator interrupts with `Ctrl+C`.
 
 Calibration is handled by `calibrate_trigger_profile.py`. The generated profile can contain both absolute and ratio click coordinates; runtime normalizes that profile to ratio coordinates for portability.
+
+The launcher now uses input-only calibration by default, so normal runs ask you to select the chat input centroid and do not ask for a Stop-button template. Runtime also passes `--disable-active-detection` and `--ignore-stop-templates`, so the Stop icon is not used to decide when the next prompt may fire.
 
 When calibration asks for the Copilot stop button, Copilot Chat must be actively generating so the real enabled Stop button is visible. That step captures both the pointer location and the `stop_button_template.png` image used for active-state detection. If calibration is done while chat is idle, the template can capture an inactive icon, send button, or nearby UI chrome and cause false active/idle detection later.
 
@@ -100,6 +103,7 @@ False active detection, where the launcher keeps waiting even though chat is idl
 
 Stacked submits, where a new prompt fires before the prior response fully settles:
 
+- Confirm the prior response ended with `READY FOR MORE`; the launcher waits for that completion marker instead of the Stop icon.
 - Keep UIA scan enabled; the single-flight guard uses accessibility output snapshots to confirm completion.
 - Leave unchanged UIA output snapshots at the default `2` unless you are deliberately tuning for a noisy VS Code accessibility tree.
 - Treat `Single-flight activity edge timeout reached` as a diagnostic warning, not a completion signal. The monitor will continue waiting for real activity/output evidence.
@@ -146,6 +150,9 @@ Normal operation should use `run_trigger_prompt.ps1`. The Python flags remain av
 - `--submit-cooldown-seconds 1.5`
 - `--single-flight-timeout-seconds 45.0`
 - `--output-stable-cycles 2`
+- `--completion-keyword "READY FOR MORE"`
+- `--disable-active-detection`
+- `--ignore-stop-templates`
 - `--stop-template path.png` (repeatable)
 - `--stop-template-glob .\templates\stop_*.png` (repeatable)
 - `--template-confidence 0.90`

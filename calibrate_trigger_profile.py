@@ -3,8 +3,8 @@
 Calibration helper for x_trigger_prompt_x.py.
 
 This script captures:
-- A stop-button image template cropped from the VS Code window.
 - A chat-input click point in both absolute and window-relative form.
+- Optionally, a stop-button image template cropped from the VS Code window.
 - A JSON profile that the main script can load with --profile-file.
 """
 
@@ -109,6 +109,11 @@ def main() -> int:
         help="Output PNG template path.",
     )
     parser.add_argument(
+        "--input-only",
+        action="store_true",
+        help="Only capture the chat input centroid; do not ask for or save a stop-button template.",
+    )
+    parser.add_argument(
         "--template-size",
         type=int,
         default=48,
@@ -163,27 +168,46 @@ def main() -> int:
     left, top, width, height = window_region(window)
     print(f"Using VS Code window: left={left}, top={top}, width={width}, height={height}")
 
-    stop_x, stop_y = ask_for_point(
-        "Hover your mouse over the center of the Copilot stop button.",
-        args.capture_delay_seconds,
-    )
+    profile: dict[str, Any] = {
+        "vs_title_regex": args.vs_title_regex,
+        "template_confidence": args.template_confidence,
+        "template_scales": template_scales,
+        "halt_keyword": args.halt_keyword,
+        "chat_focus_hotkey": "ctrl+alt+i",
+        "notes": [
+            "Use ratio coordinates for better resolution/DPI portability.",
+        ],
+    }
 
-    shot = pyautogui.screenshot(region=(left, top, width, height))
-    rel_x = stop_x - left
-    rel_y = stop_y - top
-    half = args.template_size // 2
+    if not args.input_only:
+        stop_x, stop_y = ask_for_point(
+            "Hover your mouse over the center of the Copilot stop button.",
+            args.capture_delay_seconds,
+        )
 
-    crop_left = clamp(rel_x - half, 0, width - 1)
-    crop_top = clamp(rel_y - half, 0, height - 1)
-    crop_right = clamp(crop_left + args.template_size, 1, width)
-    crop_bottom = clamp(crop_top + args.template_size, 1, height)
+        shot = pyautogui.screenshot(region=(left, top, width, height))
+        rel_x = stop_x - left
+        rel_y = stop_y - top
+        half = args.template_size // 2
 
-    template = shot.crop((crop_left, crop_top, crop_right, crop_bottom))
+        crop_left = clamp(rel_x - half, 0, width - 1)
+        crop_top = clamp(rel_y - half, 0, height - 1)
+        crop_right = clamp(crop_left + args.template_size, 1, width)
+        crop_bottom = clamp(crop_top + args.template_size, 1, height)
 
-    template_path = args.output_template
-    template_path.parent.mkdir(parents=True, exist_ok=True)
-    template.save(template_path)
-    print(f"Saved stop-button template: {template_path}")
+        template = shot.crop((crop_left, crop_top, crop_right, crop_bottom))
+
+        template_path = args.output_template
+        template_path.parent.mkdir(parents=True, exist_ok=True)
+        template.save(template_path)
+        print(f"Saved stop-button template: {template_path}")
+        profile.update(
+            {
+                "stop_template": str(template_path),
+                "stop_templates": [str(template_path)],
+            }
+        )
+        profile["notes"].append("Template matching may need recapture when theme/zoom/scaling changes.")
 
     input_x, input_y = ask_for_point(
         "Hover your mouse over the center of the chat input area.",
@@ -195,23 +219,14 @@ def main() -> int:
     input_x_ratio = max(0.0, min(1.0, input_x_ratio))
     input_y_ratio = max(0.0, min(1.0, input_y_ratio))
 
-    profile = {
-        "vs_title_regex": args.vs_title_regex,
-        "stop_template": str(template_path),
-        "stop_templates": [str(template_path)],
-        "template_confidence": args.template_confidence,
-        "template_scales": template_scales,
-        "input_click_x": int(input_x),
-        "input_click_y": int(input_y),
-        "input_click_x_ratio": round(input_x_ratio, 6),
-        "input_click_y_ratio": round(input_y_ratio, 6),
-        "halt_keyword": args.halt_keyword,
-        "chat_focus_hotkey": "ctrl+alt+i",
-        "notes": [
-            "Use ratio coordinates for better resolution/DPI portability.",
-            "Template matching may need recapture when theme/zoom/scaling changes.",
-        ],
-    }
+    profile.update(
+        {
+            "input_click_x": int(input_x),
+            "input_click_y": int(input_y),
+            "input_click_x_ratio": round(input_x_ratio, 6),
+            "input_click_y_ratio": round(input_y_ratio, 6),
+        }
+    )
 
     profile_path = args.output_profile
     profile_path.parent.mkdir(parents=True, exist_ok=True)
