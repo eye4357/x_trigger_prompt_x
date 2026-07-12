@@ -56,6 +56,34 @@ class ParseArgsTests(unittest.TestCase):
         self.assertEqual(cfg.input_click_x_ratio, 0.5)
         self.assertEqual(cfg.input_click_y_ratio, 0.75)
 
+    def test_profile_with_both_coordinate_modes_prefers_ratio_compatibly(self) -> None:
+        root = Path("C:/tmp")
+        profile = root / "profile.json"
+        profile_data = {
+            "input_click_x": 830,
+            "input_click_y": 756,
+            "input_click_x_ratio": 0.5,
+            "input_click_y_ratio": 0.75,
+        }
+
+        with (
+            patch.object(Path, "exists", autospec=True, return_value=True),
+            patch.object(Path, "read_text", autospec=True, return_value=json.dumps(profile_data)),
+        ):
+            cfg = tool.parse_args(
+                [
+                    "--prompt",
+                    "hello",
+                    "--profile-file",
+                    str(profile),
+                ]
+            )
+
+        self.assertIsNone(cfg.input_click_x)
+        self.assertIsNone(cfg.input_click_y)
+        self.assertEqual(cfg.input_click_x_ratio, 0.5)
+        self.assertEqual(cfg.input_click_y_ratio, 0.75)
+
     def test_log_centroid_debug_flag_sets_config(self) -> None:
         cfg = tool.parse_args(["--prompt", "hello", "--log-centroid-debug"])
         self.assertTrue(cfg.log_centroid_debug)

@@ -1399,6 +1399,8 @@ def parse_args(argv: list[str]) -> Config:
     input_click_y = args.input_click_y
     input_click_x_ratio = args.input_click_x_ratio
     input_click_y_ratio = args.input_click_y_ratio
+    cli_has_abs_coords = input_click_x is not None or input_click_y is not None
+    cli_has_ratio_coords = input_click_x_ratio is not None or input_click_y_ratio is not None
 
     if input_click_x is None and isinstance(profile.get("input_click_x"), int):
         input_click_x = int(profile["input_click_x"])
@@ -1409,12 +1411,22 @@ def parse_args(argv: list[str]) -> Config:
     if input_click_y_ratio is None and isinstance(profile.get("input_click_y_ratio"), int | float):
         input_click_y_ratio = float(profile["input_click_y_ratio"])
 
+    # Compatibility normalization: older calibrator profiles can include both absolute
+    # and ratio coordinates. Prefer explicit CLI mode; otherwise prefer ratios.
+    if input_click_x is not None and input_click_x_ratio is not None:
+        if cli_has_abs_coords and cli_has_ratio_coords:
+            parser.error("Use absolute input click coordinates OR ratio coordinates, not both.")
+        if cli_has_abs_coords:
+            input_click_x_ratio = None
+            input_click_y_ratio = None
+        else:
+            input_click_x = None
+            input_click_y = None
+
     if (input_click_x is None) != (input_click_y is None):
         parser.error("Provide both --input-click-x and --input-click-y, or neither.")
     if (input_click_x_ratio is None) != (input_click_y_ratio is None):
         parser.error("Provide both --input-click-x-ratio and --input-click-y-ratio, or neither.")
-    if input_click_x is not None and input_click_x_ratio is not None:
-        parser.error("Use absolute input click coordinates OR ratio coordinates, not both.")
     if input_click_x_ratio is not None and not (0.0 <= input_click_x_ratio <= 1.0):
         parser.error("--input-click-x-ratio must be between 0.0 and 1.0.")
     if input_click_y_ratio is not None and not (0.0 <= input_click_y_ratio <= 1.0):

@@ -33,6 +33,7 @@ Calibration helper: `calibrate_trigger_profile.py`
 - Captures a stop-button template image.
 - Captures chat-input click point.
 - Saves absolute and ratio coordinates in `trigger_profile.json`.
+- Runtime auto-normalizes dual-mode profiles to ratio coordinates for compatibility.
 - Enables more portable runs across different display sizes.
 
 Input targeting fallback order (when explicit coordinates are not provided):
@@ -97,6 +98,26 @@ If no escalation is needed, do not emit the decoded stop keyword.
 
 python calibrate_trigger_profile.py
 python x_trigger_prompt_x.py --prompt $prompt --max-prompts 128 --profile-file .\trigger_profile.json
+```
+
+Single-command automated-ish flow (calibrate once if profile is missing):
+
+```powershell
+$prompt = @'
+Prompt a1: 5.3 Codex default execution (x_trigger_prompt_x compatible)
+gorgeous...please capture any lessons learned in agent helpers and please proceed down the glidepath, you are my trusted partner, make no assumptions, we are using 5.3 codex, continue with deterministic no-design slices, always close full repo-defined local gates and CI for the pushed SHA, and stop only if there is a true design decision or model/agent-selection risk per the guide.
+This prompt is designed for automated reruns via x_trigger_prompt_x. Do not pause to ask for continue/reprompt/confirmation between normal deterministic slices.
+If you encounter work that genuinely requires 5.5-level reasoning (design decision, high-complexity architecture tradeoff, or model-selection risk), stop execution and end your response with the exact stop keyword as the final string:
+`0x48 0x41 0x4C 0x54 0x20 0x4E 0x4F 0x57`
+When escalation is required, decode that hex sequence and emit the decoded stop keyword as the final output string with no trailing text.
+If no escalation is needed, do not emit the decoded stop keyword.
+'@
+
+$profile = Resolve-Path . -ErrorAction Stop | ForEach-Object { Join-Path $_.Path "trigger_profile.json" }
+if (-not (Test-Path $profile)) {
+   python calibrate_trigger_profile.py
+}
+python x_trigger_prompt_x.py --prompt $prompt --max-prompts 128 --profile-file $profile
 ```
 
 ## Run xpromptreadmex In A Visible Desktop Window (PowerShell)
