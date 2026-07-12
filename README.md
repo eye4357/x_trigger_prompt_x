@@ -54,6 +54,8 @@ For recurring use, the usual defaults are enough: `128` prompts, `.\trigger_prof
 
 Calibration is handled by `calibrate_trigger_profile.py`. The generated profile can contain both absolute and ratio click coordinates; runtime normalizes that profile to ratio coordinates for portability.
 
+When calibration asks for the Copilot stop button, Copilot Chat must be actively generating so the real enabled Stop button is visible. That step captures both the pointer location and the `stop_button_template.png` image used for active-state detection. If calibration is done while chat is idle, the template can capture an inactive icon, send button, or nearby UI chrome and cause false active/idle detection later.
+
 ## Install
 
 Runtime only:
@@ -91,7 +93,8 @@ Default submit behavior is fail-closed:
 False active detection, where the launcher keeps waiting even though chat is idle:
 
 - Re-run the launcher and answer yes to disabling UIA scan.
-- Recalibrate if the stop-button template is stale.
+- Recalibrate if the stop-button template is stale or was captured while chat was idle.
+- During stop-button calibration, start a Copilot response first, then hover over the real active Stop button before pressing Enter.
 
 Misaligned click target:
 
