@@ -250,10 +250,12 @@ class PromptMonitor:
                 self._idle_streak = 0
                 self._awaiting_post_submit_activity = True
                 self._awaiting_post_submit_started_at = time.monotonic()
-                self._awaiting_post_submit_activity_seen = self.config.dry_run
+                self._awaiting_post_submit_activity_seen = self.config.dry_run or self._last_submit_saw_activity
                 self._awaiting_post_submit_timeout_logged = False
                 self._last_completion_fingerprint = None
                 self._completion_stable_streak = 0
+                if self._last_submit_saw_activity:
+                    self._single_flight_activity_edges += 1
                 self._log(f"Submitted {self._submitted}/{self.config.max_prompts}.")
             else:
                 self._log("Submit attempt failed. Retrying...")

@@ -1761,6 +1761,39 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertEqual(mon._single_flight_activity_edges, 1)
         self.assertEqual(mon._single_flight_timeout_fallbacks, 0)
 
+    def test_run_single_flight_uses_activity_seen_during_submit_probe(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            max_prompts=2,
+            poll_seconds=0.0,
+            idle_stable_cycles=1,
+            output_stable_cycles=1,
+            submit_cooldown_seconds=0.0,
+            no_activity_backoff_seconds=0.0,
+            single_flight_timeout_seconds=999.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+        submit_activity = [True, False]
+
+        def submit_with_activity(_window: object) -> bool:
+            mon._last_submit_saw_activity = submit_activity.pop(0) if submit_activity else False
+            return True
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_should_halt", return_value=False),
+            patch.object(mon, "_chat_active_source", return_value=None),
+            patch.object(mon, "_chat_output_fingerprint", return_value=("done",)),
+            patch.object(mon, "_submit_prompt", side_effect=submit_with_activity) as submit_mock,
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+        ):
+            mon.run()
+
+        self.assertEqual(submit_mock.call_count, 2)
+        self.assertEqual(mon._single_flight_activity_edges, 1)
+        self.assertEqual(mon._single_flight_timeout_fallbacks, 0)
+
     def test_run_single_flight_dry_run_does_not_wait_for_output_snapshot(self) -> None:
         cfg = tool.Config(
             prompt="x",
