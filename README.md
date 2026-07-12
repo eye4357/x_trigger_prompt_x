@@ -21,6 +21,7 @@ The Q&A covers the runtime choices that used to be scattered across README examp
 - max prompt submissions, default `128`
 - profile path, default `.\trigger_profile.json`
 - whether to run calibration if the profile is missing
+- single-flight timeout seconds, default `45`
 - whether to disable UI Automation scan when false active-state detection is stuck
 - whether to enable centroid debug logging
 - whether to run in `--dry-run` mode
@@ -41,7 +42,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\run_trigger_prompt.ps1
 4. Accept the defaults for normal deterministic glidepath execution.
 5. If the profile is missing, answer yes to calibration and follow the on-screen calibration prompts.
 
-For recurring use, the usual defaults are enough: `128` prompts, `.\trigger_profile.json`, calibration if missing, UIA scan enabled, centroid debug off, dry run off, same window.
+For recurring use, the usual defaults are enough: `128` prompts, single-flight timeout `45s`, `.\trigger_profile.json`, calibration if missing, UIA scan enabled, centroid debug off, dry run off, same window.
 
 ## What The Tool Does
 
