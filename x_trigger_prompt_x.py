@@ -127,10 +127,10 @@ class PromptMonitor:
                 self._log("Halt keyword detected in chat output. Ending monitor early.")
                 break
 
-            is_active = self._is_chat_active(window)
-            if is_active:
+            active_source = self._chat_active_source(window)
+            if active_source:
                 self._idle_streak = 0
-                self._log("Chat active (stop button detected). Waiting...")
+                self._log(f"Chat active (stop button detected via {active_source}). Waiting...")
                 time.sleep(self.config.poll_seconds)
                 continue
 
@@ -231,22 +231,26 @@ class PromptMonitor:
         return left, top, width, height
 
     def _is_chat_active(self, window: Any) -> bool:
-        # First try UI automation (if available), then image matching fallback.
+        return self._chat_active_source(window) is not None
+
+    def _chat_active_source(self, window: Any) -> str | None:
+        # When UIA is available and gives a clean negative, trust it over image matching.
         if self.config.use_uia_scan and Desktop is not None:
             try:
                 if self._uia_detect_stop_button(window):
-                    return True
+                    return "uia"
+                return None
             except Exception:
                 pass
 
         if self.config.stop_templates:
             try:
                 if self._template_detect_stop_button(window):
-                    return True
+                    return "template"
             except Exception:
                 pass
 
-        return False
+        return None
 
     def _uia_detect_stop_button(self, window: Any) -> bool:
         app = Desktop(backend="uia")

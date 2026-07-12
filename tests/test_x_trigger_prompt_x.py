@@ -196,6 +196,30 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
         self.assertTrue(found)
         self.assertEqual(calls, ["a.png", "b.png"])
 
+    def test_chat_active_trusts_clean_uia_negative_over_template_match(self) -> None:
+        cfg = tool.Config(prompt="x", stop_templates=(Path("stop.png"),), use_uia_scan=True)
+        mon = tool.PromptMonitor(cfg)
+
+        with (
+            patch.object(tool, "Desktop", object()),
+            patch.object(mon, "_uia_detect_stop_button", return_value=False),
+            patch.object(mon, "_template_detect_stop_button", return_value=True),
+        ):
+            self.assertIsNone(mon._chat_active_source(SimpleNamespace()))
+            self.assertFalse(mon._is_chat_active(SimpleNamespace()))
+
+    def test_chat_active_uses_template_when_uia_raises(self) -> None:
+        cfg = tool.Config(prompt="x", stop_templates=(Path("stop.png"),), use_uia_scan=True)
+        mon = tool.PromptMonitor(cfg)
+
+        with (
+            patch.object(tool, "Desktop", object()),
+            patch.object(mon, "_uia_detect_stop_button", side_effect=RuntimeError("uia unavailable")),
+            patch.object(mon, "_template_detect_stop_button", return_value=True),
+        ):
+            self.assertEqual(mon._chat_active_source(SimpleNamespace()), "template")
+            self.assertTrue(mon._is_chat_active(SimpleNamespace()))
+
     def test_uia_stop_button_ignores_hidden_stale_controls(self) -> None:
         cfg = tool.Config(prompt="x")
         mon = tool.PromptMonitor(cfg)
