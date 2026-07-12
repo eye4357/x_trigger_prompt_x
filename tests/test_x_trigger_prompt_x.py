@@ -174,6 +174,20 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
 
         self.assertEqual(mon._resolve_input_click(win), (110, 70))
 
+    def test_template_search_region_anchors_near_configured_click(self) -> None:
+        cfg = tool.Config(prompt="x", input_click_x_ratio=0.875, input_click_y_ratio=0.89)
+        mon = tool.PromptMonitor(cfg)
+        win = SimpleNamespace(left=0, top=0, width=2000, height=1000)
+
+        self.assertEqual(mon._template_search_region(win), (1590, 750, 380, 220))
+
+    def test_template_search_region_uses_full_window_without_click_target(self) -> None:
+        cfg = tool.Config(prompt="x")
+        mon = tool.PromptMonitor(cfg)
+        win = SimpleNamespace(left=10, top=20, width=800, height=600)
+
+        self.assertEqual(mon._template_search_region(win), (10, 20, 800, 600))
+
     def test_template_detection_fallback_uses_multiple_templates(self) -> None:
         cfg = tool.Config(
             prompt="x",

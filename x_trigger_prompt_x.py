@@ -319,10 +319,49 @@ class PromptMonitor:
     def _template_detect_stop_button(self, window: Any) -> bool:
         if not self.config.stop_templates:
             return False
-        region = self._window_region(window)
+        region = self._template_search_region(window)
         if cv2 is not None and np is not None:
             return self._template_detect_with_cv2(region)
         return self._template_detect_with_pyautogui(region)
+
+    def _template_search_region(self, window: Any) -> tuple[int, int, int, int]:
+        left, top, width, height = self._window_region(window)
+        click_xy = self._resolve_input_click(window)
+        if click_xy is None:
+            return left, top, width, height
+
+        click_x, click_y = click_xy
+        left_pad = max(160, int(round(width * 0.06)))
+        right_pad = max(220, int(round(width * 0.10)))
+        top_pad = max(140, int(round(height * 0.14)))
+        bottom_pad = max(80, int(round(height * 0.08)))
+
+        region_left = max(left, click_x - left_pad)
+        region_top = max(top, click_y - top_pad)
+        region_right = min(left + width, click_x + right_pad)
+        region_bottom = min(top + height, click_y + bottom_pad)
+
+        if region_right <= region_left or region_bottom <= region_top:
+            return left, top, width, height
+        return region_left, region_top, region_right - region_left, region_bottom - region_top
+
+    def _log_template_match(
+        self,
+        backend: str,
+        template_path: Path,
+        region: tuple[int, int, int, int],
+        match_left: int,
+        match_top: int,
+        score: float | None = None,
+        scale: float | None = None,
+    ) -> None:
+        score_text = "" if score is None else f" score={score:.3f}"
+        scale_text = "" if scale is None else f" scale={scale:.2f}"
+        self._log_centroid_debug(
+            "template_match "
+            f"backend={backend} template={template_path} x={match_left} y={match_top} "
+            f"region={region[0]},{region[1]},{region[2]},{region[3]}{score_text}{scale_text}"
+        )
 
     def _template_detect_with_pyautogui(self, region: tuple[int, int, int, int]) -> bool:
         # Fallback matcher when OpenCV is unavailable: no scale sweep.
@@ -334,6 +373,13 @@ class PromptMonitor:
                 grayscale=True,
             )
             if match is not None:
+                self._log_template_match(
+                    "pyautogui",
+                    template_path,
+                    region,
+                    int(getattr(match, "left", region[0])),
+                    int(getattr(match, "top", region[1])),
+                )
                 return True
         return False
 
@@ -364,8 +410,17 @@ class PromptMonitor:
                     candidate = cv2.resize(template, (scaled_w, scaled_h), interpolation=interp)
 
                 result = cv2.matchTemplate(screen_gray, candidate, cv2.TM_CCOEFF_NORMED)
-                _, max_val, _, _ = cv2.minMaxLoc(result)
+                _, max_val, _, max_loc = cv2.minMaxLoc(result)
                 if max_val >= self.config.template_confidence:
+                    self._log_template_match(
+                        "cv2",
+                        template_path,
+                        region,
+                        region[0] + int(max_loc[0]),
+                        region[1] + int(max_loc[1]),
+                        float(max_val),
+                        scale,
+                    )
                     return True
 
         return False
