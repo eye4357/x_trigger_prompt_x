@@ -182,6 +182,18 @@ class PromptMonitor:
                     time.sleep(self.config.poll_seconds)
                     continue
 
+                if self.config.dry_run:
+                    self._awaiting_post_submit_activity = False
+                    self._awaiting_post_submit_activity_seen = False
+                    self._awaiting_post_submit_timeout_logged = False
+                    self._awaiting_post_submit_started_at = 0.0
+                    self._last_completion_fingerprint = None
+                    self._completion_stable_streak = 0
+                    self._idle_streak = 0
+                    self._log("Single-flight transition complete (dry-run -> stable idle).")
+                    time.sleep(self.config.poll_seconds)
+                    continue
+
                 fingerprint = self._chat_output_fingerprint(window)
                 if fingerprint is None:
                     self._log("Single-flight guard: waiting for UIA chat output snapshot before next submit.")
