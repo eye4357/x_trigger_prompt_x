@@ -88,6 +88,10 @@ class ParseArgsTests(unittest.TestCase):
         cfg = tool.parse_args(["--prompt", "hello", "--log-centroid-debug"])
         self.assertTrue(cfg.log_centroid_debug)
 
+    def test_single_flight_timeout_seconds_must_be_non_negative(self) -> None:
+        with self.assertRaises(SystemExit):
+            tool.parse_args(["--prompt", "hello", "--single-flight-timeout-seconds", "-1"])
+
 
 class HelperFunctionTests(unittest.TestCase):
     def test_parse_scales_csv_deduplicates_and_preserves_order(self) -> None:
@@ -1620,6 +1624,63 @@ class PromptMonitorBehaviorTests(unittest.TestCase):
             patch.object(mon, "_uia_focused_control_looks_like_safe_lower_input", return_value=False),
         ):
             self.assertFalse(mon._focus_verified_chat_input(window, (820, 768)))
+
+    def test_run_single_flight_blocks_resubmit_without_activity_edge(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            max_prompts=2,
+            poll_seconds=0.0,
+            idle_stable_cycles=1,
+            submit_cooldown_seconds=0.0,
+            no_activity_backoff_seconds=0.0,
+            single_flight_timeout_seconds=999.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        def stop_after_first_guard(_seconds: float) -> None:
+            if mon._awaiting_post_submit_activity:
+                mon.request_stop()
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_should_halt", return_value=False),
+            patch.object(mon, "_chat_active_source", return_value=None),
+            patch.object(mon, "_submit_prompt", return_value=True) as submit_mock,
+            patch("x_trigger_prompt_x.time.sleep", side_effect=stop_after_first_guard),
+        ):
+            mon.run()
+
+        self.assertEqual(submit_mock.call_count, 1)
+
+    def test_run_single_flight_allows_resubmit_after_active_then_idle(self) -> None:
+        cfg = tool.Config(
+            prompt="x",
+            max_prompts=2,
+            poll_seconds=0.0,
+            idle_stable_cycles=1,
+            submit_cooldown_seconds=0.0,
+            no_activity_backoff_seconds=0.0,
+            single_flight_timeout_seconds=999.0,
+        )
+        mon = tool.PromptMonitor(cfg)
+
+        states = [None, "uia", None, None]
+
+        def next_state(_window: object) -> str | None:
+            return states.pop(0) if states else None
+
+        with (
+            patch.object(mon, "_print_header", return_value=None),
+            patch.object(mon, "_find_vscode_window", return_value=SimpleNamespace()),
+            patch.object(mon, "_should_halt", return_value=False),
+            patch.object(mon, "_chat_active_source", side_effect=next_state),
+            patch.object(mon, "_submit_prompt", return_value=True) as submit_mock,
+            patch("x_trigger_prompt_x.time.sleep", return_value=None),
+        ):
+            mon.run()
+
+        self.assertEqual(submit_mock.call_count, 2)
 
 
 if __name__ == "__main__":

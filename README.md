@@ -136,6 +136,7 @@ Normal operation should use `run_trigger_prompt.ps1`. The Python flags remain av
 - `--max-prompts N` (`1-512`)
 - `--poll-seconds 1.0`
 - `--submit-cooldown-seconds 1.5`
+- `--single-flight-timeout-seconds 45.0`
 - `--stop-template path.png` (repeatable)
 - `--stop-template-glob .\templates\stop_*.png` (repeatable)
 - `--template-confidence 0.90`

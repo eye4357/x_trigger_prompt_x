@@ -76,6 +76,7 @@ class Config:
     idle_stable_cycles: int = 2
     submit_cooldown_seconds: float = 1.5
     no_activity_backoff_seconds: float = 8.0
+    single_flight_timeout_seconds: float = 45.0
     post_submit_activity_wait_seconds: float = 2.5
     vs_title_regex: str = r".*Visual Studio Code.*"
     chat_focus_hotkey: str = DEFAULT_SHORTCUT
@@ -110,6 +111,9 @@ class PromptMonitor:
         self._idle_streak = 0
         self._chat_focus_hotkey_used = False
         self._last_submit_saw_activity = False
+        self._awaiting_post_submit_activity = False
+        self._awaiting_post_submit_started_at = 0.0
+        self._awaiting_post_submit_activity_seen = False
 
     def request_stop(self, *_args: object) -> None:
         self._stop_requested = True
@@ -127,14 +131,51 @@ class PromptMonitor:
                 self._log("Halt keyword detected in chat output. Ending monitor early.")
                 break
 
+            now = time.monotonic()
             active_source = self._chat_active_source(window)
             if active_source:
                 self._idle_streak = 0
+                if self._awaiting_post_submit_activity:
+                    self._awaiting_post_submit_activity_seen = True
                 self._log(f"Chat active (stop button detected via {active_source}). Waiting...")
                 time.sleep(self.config.poll_seconds)
                 continue
 
             self._idle_streak += 1
+
+            if self._awaiting_post_submit_activity and not self._awaiting_post_submit_activity_seen:
+                elapsed = now - self._awaiting_post_submit_started_at
+                if elapsed < self.config.single_flight_timeout_seconds:
+                    self._log(
+                        "Single-flight guard active: waiting for post-submit activity edge "
+                        f"before next submit ({elapsed:.1f}/{self.config.single_flight_timeout_seconds:.1f}s)."
+                    )
+                    time.sleep(self.config.poll_seconds)
+                    continue
+
+                self._log(
+                    "Single-flight activity edge timeout reached; requiring stable idle transition "
+                    "before next submit."
+                )
+                self._awaiting_post_submit_activity_seen = True
+
+            if self._awaiting_post_submit_activity and self._awaiting_post_submit_activity_seen:
+                if self._idle_streak < self.config.idle_stable_cycles:
+                    self._log(
+                        "Single-flight guard: waiting for stable idle after activity "
+                        f"({self._idle_streak}/{self.config.idle_stable_cycles})..."
+                    )
+                    time.sleep(self.config.poll_seconds)
+                    continue
+
+                self._awaiting_post_submit_activity = False
+                self._awaiting_post_submit_activity_seen = False
+                self._awaiting_post_submit_started_at = 0.0
+                self._idle_streak = 0
+                self._log("Single-flight transition complete (activity -> stable idle).")
+                time.sleep(self.config.poll_seconds)
+                continue
+
             if self._idle_streak < self.config.idle_stable_cycles:
                 self._log(
                     "Chat appears idle but waiting for stable idle cycles "
@@ -158,6 +199,9 @@ class PromptMonitor:
             if ok:
                 self._submitted += 1
                 self._idle_streak = 0
+                self._awaiting_post_submit_activity = True
+                self._awaiting_post_submit_started_at = time.monotonic()
+                self._awaiting_post_submit_activity_seen = self.config.dry_run
                 self._log(f"Submitted {self._submitted}/{self.config.max_prompts}.")
             else:
                 self._log("Submit attempt failed. Retrying...")
@@ -1302,6 +1346,12 @@ def parse_args(argv: list[str]) -> Config:
         help="Extended cooldown when no post-submit activity is detected.",
     )
     parser.add_argument(
+        "--single-flight-timeout-seconds",
+        type=float,
+        default=45.0,
+        help="How long to wait for post-submit activity edge before timeout fallback.",
+    )
+    parser.add_argument(
         "--post-submit-activity-wait-seconds",
         type=float,
         default=2.5,
@@ -1438,6 +1488,9 @@ def parse_args(argv: list[str]) -> Config:
     if args.no_activity_backoff_seconds < 0:
         parser.error("--no-activity-backoff-seconds must be >= 0.")
 
+    if args.single_flight_timeout_seconds < 0:
+        parser.error("--single-flight-timeout-seconds must be >= 0.")
+
     if args.post_submit_activity_wait_seconds < 0:
         parser.error("--post-submit-activity-wait-seconds must be >= 0.")
 
@@ -1539,6 +1592,7 @@ def parse_args(argv: list[str]) -> Config:
         idle_stable_cycles=args.idle_stable_cycles,
         submit_cooldown_seconds=args.submit_cooldown_seconds,
         no_activity_backoff_seconds=args.no_activity_backoff_seconds,
+        single_flight_timeout_seconds=args.single_flight_timeout_seconds,
         post_submit_activity_wait_seconds=args.post_submit_activity_wait_seconds,
         submit_enter_delay_seconds=args.submit_enter_delay_seconds,
         vs_title_regex=vs_title_regex,
